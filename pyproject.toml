@@ -9,15 +9,37 @@ dependencies = [
     "numpy>=2.3.2",
     "pdfminer-six>=20250506",
     "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
     "python-multipart>=0.0.20",
     "requests>=2.32.5",
     "streamlit>=1.48.1",
     "uvicorn>=0.35.0",
+    "typer>=0.13.1",
+    "rich>=13.9.4",
+    "mistralai>=1.9.6",
+    "poethepoet>=0.37.0",
+    "aiosqlite>=0.20.0",
+    "httpx>=0.25.0",
 ]
 
 [dependency-groups]
 dev = [
     "basedpyright>=1.31.2",
+    "pre-commit>=4.3.0",
     "pytest>=8.4.1",
+    "pytest-cov>=6.0.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-benchmark>=5.1.0",
     "ruff>=0.12.9",
+    "pydantic-settings>=2.10.1",
+    "psutil>=6.0.0",
 ]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+rag = "app.cli.commands:app"
+
+[tool.poe.tasks]
+app = "streamlit run src/ui/streamlit_app.py"
