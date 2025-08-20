@@ -216,3 +216,9 @@ instructions.md
 *.sqlite3-wal
 *.sqlite3-shm
 rag.db*
+
+
+.claude/
+.benchmarks/
+.streamlit/
+logs/

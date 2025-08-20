@@ -35,6 +35,9 @@ dev = [
     "psutil>=6.0.0",
 ]
 
+[tool.uv]
+package = true
+
 [project.scripts]
 rag = "app.cli.commands:app"
 
