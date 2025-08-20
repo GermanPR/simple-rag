@@ -42,4 +42,4 @@ package = true
 rag = "app.cli.commands:app"
 
 [tool.poe.tasks]
-app = "streamlit run ui/streamlit_app.py"
+app = "streamlit run src/ui/streamlit_app.py"

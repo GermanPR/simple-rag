@@ -172,6 +172,8 @@ class DatabaseManager:
 
         placeholders = ",".join("?" for _ in tokens)
         with sqlite3.connect(self.db_path) as conn:
+            from math import log
+            conn.create_function("LOG", 1, log)
             cursor = conn.execute(
                 f"""
                 SELECT
