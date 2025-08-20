@@ -1,7 +1,6 @@
 """Mistral API client for embeddings and chat completions."""
 
 import asyncio
-import logging
 from collections.abc import Sequence
 from typing import Any
 from typing import cast
@@ -16,9 +15,9 @@ from pydantic import BaseModel
 from app.core.config import config
 from app.core.exceptions import APIError
 from app.core.exceptions import ConfigurationError
-from app.core.monitoring import monitor
+from app.core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__.split(".")[-1])
 
 
 def _convert_messages(messages: Sequence[dict[str, str]]) -> list[MessagesTypedDict]:
@@ -51,16 +50,17 @@ class MistralClient:
         # Initialize the official Mistral AI SDK client
         self.client = Mistral(api_key=self.api_key)
 
-    @monitor
     def get_embeddings(
-        self, texts: list[str], model: str | None = None
+        self, texts: list[str], model: str | None = None, batch_size: int = 100
     ) -> list[np.ndarray]:
         """
         Get embeddings for a list of texts using the official Mistral AI client.
+        Automatically handles batching to avoid token limits.
 
         Args:
             texts: List of texts to embed
             model: Model to use (defaults to configured embed model)
+            batch_size: Maximum number of texts per batch
 
         Returns:
             List of embedding vectors as numpy arrays
@@ -72,26 +72,38 @@ class MistralClient:
             return []
 
         model = model or self.embed_model
+        all_embeddings: list[np.ndarray] = []
 
-        try:
-            embeddings_response: EmbeddingResponse = self.client.embeddings.create(
-                model=model,
-                inputs=texts,
-            )
+        # Process texts in batches
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
 
-            embeddings: list[np.ndarray] = []
-            for item in embeddings_response.data:
-                embeddings.append(np.array(item.embedding, dtype=np.float32))
+            try:
+                embeddings_response: EmbeddingResponse = self.client.embeddings.create(
+                    model=model,
+                    inputs=batch,
+                )
 
-            return embeddings
+                batch_embeddings: list[np.ndarray] = []
+                for item in embeddings_response.data:
+                    batch_embeddings.append(np.array(item.embedding, dtype=np.float32))
 
-        except Exception as e:
-            logger.error(f"Mistral embeddings API request failed: {e}")
-            raise MistralAPIError(f"Embeddings API request failed: {e}") from e
+                all_embeddings.extend(batch_embeddings)
 
-    @monitor
+            except Exception as e:
+                # If batch fails, try with smaller batch size
+                if "Too many tokens" in str(e) and batch_size > 1:
+                    logger.warning(f"Batch size {batch_size} too large, retrying with smaller batches")
+                    smaller_batch_embeddings = self.get_embeddings(batch, model, batch_size // 2)
+                    all_embeddings.extend(smaller_batch_embeddings)
+                else:
+                    logger.error(f"Mistral embeddings API request failed: {e}")
+                    raise MistralAPIError(f"Embeddings API request failed: {e}") from e
+
+        return all_embeddings
+
     async def get_embeddings_async(
-        self, texts: list[str], model: str | None = None
+        self, texts: list[str], model: str | None = None, batch_size: int = 100
     ) -> list[np.ndarray]:
         """
         Async version of get_embeddings.
@@ -99,6 +111,7 @@ class MistralClient:
         Args:
             texts: List of texts to embed
             model: Model to use (defaults to configured embed model)
+            batch_size: Maximum number of texts per batch
 
         Returns:
             List of embedding vectors as numpy arrays
@@ -106,7 +119,7 @@ class MistralClient:
         Raises:
             MistralAPIError: If the API request fails
         """
-        return await asyncio.to_thread(self.get_embeddings, texts, model)
+        return await asyncio.to_thread(self.get_embeddings, texts, model, batch_size)
 
     def get_single_embedding(self, text: str, model: str | None = None) -> np.ndarray:
         """
@@ -138,7 +151,6 @@ class MistralClient:
         embeddings: list[np.ndarray] = await self.get_embeddings_async([text], model)
         return embeddings[0] if embeddings else np.ndarray([])
 
-    @monitor
     def chat_completion(
         self,
         messages: Sequence[dict[str, str]],
@@ -182,7 +194,6 @@ class MistralClient:
             logger.error(f"Mistral chat API request failed: {e}")
             raise MistralAPIError(f"Chat API request failed: {e}") from e
 
-    @monitor
     async def chat_completion_async(
         self,
         messages: Sequence[dict[str, str]],
@@ -209,7 +220,6 @@ class MistralClient:
             self.chat_completion, messages, model, temperature, max_tokens
         )
 
-    @monitor
     def structured_chat_completion(
         self,
         messages: Sequence[dict[str, str]],
@@ -257,7 +267,6 @@ class MistralClient:
             logger.error(f"Mistral structured chat API request failed: {e}")
             raise MistralAPIError(f"Structured chat API request failed: {e}") from e
 
-    @monitor
     async def structured_chat_completion_async(
         self,
         messages: Sequence[dict[str, str]],

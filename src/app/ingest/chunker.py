@@ -22,21 +22,27 @@ class Chunk:
 
 class HierarchicalChunker:
     """
-    Creates overlapping text chunks using hierarchical structure.
+    Creates overlapping text chunks using hierarchical structure with adaptive overlap.
 
     Attempts to respect paragraph and heading boundaries while maintaining
-    target chunk sizes with specified overlap.
+    target chunk sizes with boundary-aware overlap reduction.
     """
 
     def __init__(
         self,
         target_size: int = 1800,
-        overlap_size: int = 200,
+        overlap_size: int = 100,
         min_chunk_size: int = 100,
+        adaptive_overlap: bool = True,
     ):
         self.target_size = target_size
         self.overlap_size = overlap_size
         self.min_chunk_size = min_chunk_size
+        self.adaptive_overlap = adaptive_overlap
+
+        # Adaptive overlap settings
+        self.min_overlap = max(20, overlap_size // 4)  # Minimum 20 chars or 25% of base
+        self.boundary_reduction_factor = 0.5  # Reduce overlap by 50% at boundaries
 
         # Patterns for identifying structure
         self.heading_patterns = [
@@ -98,8 +104,8 @@ class HierarchicalChunker:
             if chunk_end <= current_pos + self.min_chunk_size and chunk_end < len(text):
                 chunk_end = min(current_pos + self.min_chunk_size, len(text))
 
-            # Try to end at a good boundary
-            chunk_text, actual_end = self._find_chunk_boundary(
+            # Try to end at a good boundary and get boundary quality
+            chunk_text, actual_end, boundary_quality = self._find_chunk_boundary_with_quality(
                 text, current_pos, chunk_end
             )
 
@@ -107,6 +113,7 @@ class HierarchicalChunker:
             if actual_end <= current_pos:
                 actual_end = min(current_pos + self.min_chunk_size, len(text))
                 chunk_text = text[current_pos:actual_end]
+                boundary_quality = 0.0  # Poor boundary
 
             # Only create chunk if it meets minimum size or it's the last piece
             if len(chunk_text.strip()) >= self.min_chunk_size or actual_end >= len(
@@ -123,12 +130,13 @@ class HierarchicalChunker:
                 )
                 chunk_position += 1
 
-            # Calculate next start position with overlap
+            # Calculate next start position with adaptive overlap
             if actual_end >= len(text):
                 break
 
-            # Move forward, but include overlap
-            overlap_start = max(current_pos, actual_end - self.overlap_size)
+            # Calculate adaptive overlap based on boundary quality
+            effective_overlap = self._calculate_adaptive_overlap(boundary_quality)
+            overlap_start = max(current_pos, actual_end - effective_overlap)
             new_pos = self._find_overlap_start(text, overlap_start, actual_end)
 
             # Ensure we make progress
@@ -139,17 +147,20 @@ class HierarchicalChunker:
 
         return chunks
 
-    def _find_chunk_boundary(
+    def _find_chunk_boundary_with_quality(
         self, text: str, start: int, target_end: int
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, float]:
         """
-        Find the best boundary for ending a chunk.
+        Find the best boundary for ending a chunk with quality scoring.
 
-        Priority:
-        1. Paragraph break
-        2. Sentence boundary
-        3. Word boundary
-        4. Character boundary (fallback)
+        Priority and Quality Scores:
+        1. Paragraph break (quality: 1.0)
+        2. Sentence boundary (quality: 0.8)
+        3. Word boundary (quality: 0.4)
+        4. Character boundary (quality: 0.0)
+        
+        Returns:
+            tuple: (chunk_text, actual_end, boundary_quality)
         """
         chunk_text = text[start:target_end]
 
@@ -164,10 +175,10 @@ class HierarchicalChunker:
         )
 
         if paragraph_matches:
-            # Use the last paragraph break
+            # Use the last paragraph break - highest quality
             match = paragraph_matches[-1]
             actual_end = start + (len(chunk_text) - len(last_portion)) + match.end()
-            return text[start:actual_end], actual_end
+            return text[start:actual_end], actual_end, 1.0
 
         # Look for sentence boundaries in the last 150 chars
         search_back = min(150, len(chunk_text))
@@ -175,10 +186,10 @@ class HierarchicalChunker:
 
         sentence_matches = list(re.finditer(self.sentence_end_pattern, search_text))
         if sentence_matches:
-            # Use the last sentence boundary
+            # Use the last sentence boundary - high quality
             match = sentence_matches[-1]
             actual_end = start + (len(chunk_text) - search_back) + match.end()
-            return text[start:actual_end], actual_end
+            return text[start:actual_end], actual_end, 0.8
 
         # Look for word boundary
         if target_end < len(text):
@@ -186,10 +197,27 @@ class HierarchicalChunker:
             for i in range(min(50, target_end - start)):
                 if text[target_end - i - 1].isspace():
                     actual_end = target_end - i
-                    return text[start:actual_end], actual_end
+                    return text[start:actual_end], actual_end, 0.4
 
-        # Fallback to character boundary
-        return chunk_text, target_end
+        # Fallback to character boundary - lowest quality
+        return chunk_text, target_end, 0.0
+
+    def _calculate_adaptive_overlap(self, boundary_quality: float) -> int:
+        """
+        Calculate effective overlap size based on boundary quality.
+        
+        High-quality boundaries (paragraphs, sentences) get reduced overlap.
+        Poor boundaries (character breaks) get full overlap.
+        """
+        if not self.adaptive_overlap:
+            return self.overlap_size
+
+        # Reduce overlap for high-quality boundaries
+        reduction = boundary_quality * self.boundary_reduction_factor
+        effective_overlap = int(self.overlap_size * (1 - reduction))
+
+        # Ensure minimum overlap
+        return max(self.min_overlap, effective_overlap)
 
     def _find_overlap_start(self, text: str, overlap_start: int, chunk_end: int) -> int:
         """
@@ -219,7 +247,7 @@ class HierarchicalChunker:
 
 
 def chunk_text(
-    pages_text: list[tuple[int, str]], target_size: int = 1800, overlap_size: int = 200
+    pages_text: list[tuple[int, str]], target_size: int = 1800, overlap_size: int = 100
 ) -> list[dict[str, Any]]:
     """
     Convenience function to chunk text and return as dictionaries.
@@ -242,7 +270,7 @@ def chunk_text(
 
 
 async def chunk_text_async(
-    pages_text: list[tuple[int, str]], target_size: int = 1800, overlap_size: int = 200
+    pages_text: list[tuple[int, str]], target_size: int = 1800, overlap_size: int = 100
 ) -> list[dict[str, Any]]:
     """
     Async convenience function to chunk text and return as dictionaries.

@@ -20,6 +20,7 @@ dependencies = [
     "poethepoet>=0.37.0",
     "aiosqlite>=0.20.0",
     "httpx>=0.25.0",
+    "pymupdf>=1.26.3",
 ]
 
 [dependency-groups]

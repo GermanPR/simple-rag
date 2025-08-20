@@ -1,6 +1,5 @@
 """FastAPI endpoint for collection management."""
 
-import logging
 import os
 from typing import Any
 
@@ -11,10 +10,12 @@ from fastapi import HTTPException
 from fastapi import status
 
 from app.core.config import config
+from app.core.exceptions import DatabaseError
+from app.core.logging_config import get_logger
 from app.core.models import MessageResponse
 from app.retriever.index import AsyncDatabaseManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__.split(".")[-1])
 
 router = APIRouter()
 
@@ -91,6 +92,12 @@ async def delete_all_collections(
 
     except HTTPException:
         raise
+    except DatabaseError as e:
+        logger.error(f"Database error deleting collections: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during collection deletion",
+        ) from e
     except Exception as e:
         logger.error(f"Failed to delete collections: {e}")
         raise HTTPException(
@@ -168,6 +175,12 @@ async def get_collection_stats(
             },
         }
 
+    except DatabaseError as e:
+        logger.error(f"Database error getting collection stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error retrieving collection statistics",
+        ) from e
     except Exception as e:
         logger.error(f"Failed to get collection stats: {e}")
         raise HTTPException(

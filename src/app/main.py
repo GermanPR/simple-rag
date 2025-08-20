@@ -14,7 +14,6 @@ from app.api import query
 from app.core.config import config
 from app.core.logging_config import setup_logging
 from app.core.models import HealthResponse
-from app.core.monitoring import metrics_collector
 from app.retriever.index import AsyncDatabaseManager
 
 # Setup centralized logging
@@ -75,20 +74,6 @@ def create_app() -> FastAPI:
                 "docs": "/docs",
             },
         }
-
-    @app.get("/metrics")
-    async def get_metrics():
-        """Get performance metrics."""
-        return {
-            "performance_stats": metrics_collector.get_all_stats(),
-            "metrics_enabled": metrics_collector.enabled,
-        }
-
-    @app.post("/metrics/clear")
-    async def clear_metrics():
-        """Clear all collected metrics."""
-        metrics_collector.clear_metrics()
-        return {"message": "Metrics cleared"}
 
     @app.get("/health", response_model=HealthResponse)
     async def health_check():

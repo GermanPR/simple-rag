@@ -5,11 +5,14 @@ across different interfaces (API, CLI, UI). It encapsulates the entire pipeline
 from intent detection to answer generation and post-processing.
 """
 
-import logging
 from typing import Any
 from typing import final
 
 from app.core.config import config
+from app.core.exceptions import APIError
+from app.core.exceptions import GenerationError
+from app.core.exceptions import RetrievalError
+from app.core.logging_config import get_logger
 from app.core.models import CitationInfo
 from app.core.models import ConversationMessageModel
 from app.core.models import DebugInfo
@@ -30,7 +33,7 @@ from app.retriever.keyword import KeywordSearcher
 from app.retriever.semantic import AsyncSemanticSearcher
 from app.retriever.semantic import SemanticSearcher
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__.split(".")[-1])
 
 
 @final
@@ -249,10 +252,17 @@ class RAGQueryService:
                 debug_info=debug_info,
             )
 
-        except Exception as e:
-            logger.error(f"Error in RAG query processing: {e}")
+        except (RetrievalError, GenerationError, APIError) as e:
+            logger.error(f"RAG system error in query processing: {e}")
             return QueryServiceResult(
-                answer="An error occurred while processing your question.",
+                answer="I encountered an error while processing your question. Please try again.",
+                success=False,
+                error=str(e),
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in RAG query processing: {e}")
+            return QueryServiceResult(
+                answer="An unexpected error occurred while processing your question.",
                 citations=[],
                 insufficient_evidence=True,
                 intent="qa",
@@ -459,6 +469,24 @@ class AsyncRAGQueryService:
             processed_answer, citations, insufficient_evidence = (
                 answer_postprocessor.process_answer(raw_answer, chunks_info)
             )
+            if insufficient_evidence:
+                debug_info = DebugInfo(
+                    semantic_top1=0.0,
+                    alpha=alpha,
+                    lambda_param=lambda_param,
+                    total_chunks=0,
+                    keyword_results=0,
+                    semantic_results=0,
+                    fused_results=0,
+                )
+                return QueryServiceResult(
+                    answer="There has been an error in the reponse, this can be hallucination or lack of evidence. Please try asking differently",
+                    citations=[],
+                    insufficient_evidence=True,
+                    intent=detected_intent,
+                    debug_info=debug_info,
+                )
+
 
             # Convert citations to the proper format
             citation_models = [
@@ -490,10 +518,17 @@ class AsyncRAGQueryService:
                 debug_info=debug_info,
             )
 
-        except Exception as e:
-            logger.error(f"Error in async RAG query processing: {e}")
+        except (RetrievalError, GenerationError, APIError) as e:
+            logger.error(f"RAG system error in async query processing: {e}")
             return QueryServiceResult(
-                answer="An error occurred while processing your question.",
+                answer="I encountered an error while processing your question. Please try again.",
+                success=False,
+                error=str(e),
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in async RAG query processing: {e}")
+            return QueryServiceResult(
+                answer="An unexpected error occurred while processing your question.",
                 citations=[],
                 insufficient_evidence=True,
                 intent="qa",

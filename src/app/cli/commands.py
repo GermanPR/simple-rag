@@ -10,6 +10,9 @@ from rich.panel import Panel
 from rich.table import Table
 
 from app.core.config import config
+from app.core.exceptions import APIError
+from app.core.exceptions import GenerationError
+from app.core.exceptions import RetrievalError
 from app.logic.intent import ConversationMessage
 from app.logic.intent import LLMIntentDetector
 from app.logic.postprocess import HALLUCINATION_ERROR_MESSAGE
@@ -251,8 +254,11 @@ def query(
         if result.insufficient_evidence:
             console.print("[yellow]Warning: Insufficient evidence detected[/yellow]")
 
+    except (RetrievalError, GenerationError, APIError) as e:
+        console.print(f"[red]RAG System Error: {e}[/red]")
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        console.print(f"[red]Unexpected Error: {e}[/red]")
         sys.exit(1)
 
 
@@ -384,8 +390,13 @@ def test_intent(
     try:
         detector = LLMIntentDetector()
         console.print("[dim]✅ LLMIntentDetector initialized[/dim]")
-    except Exception as e:
+    except (GenerationError, APIError) as e:
         console.print(f"[red]❌ Failed to initialize LLMIntentDetector: {e}[/red]")
+        return
+    except Exception as e:
+        console.print(
+            f"[red]❌ Unexpected error initializing LLMIntentDetector: {e}[/red]"
+        )
         return
 
     # Test intent detection
@@ -404,8 +415,11 @@ def test_intent(
             result = detector._fallback_intent_detection(query)
             method_used = "Fallback (Pattern Matching)"
 
-    except Exception as e:
+    except (GenerationError, APIError) as e:
         console.print(f"[red]❌ Error during intent detection: {e}[/red]")
+        console.print("[yellow]Falling back to pattern matching...[/yellow]")
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error during intent detection: {e}[/red]")
         console.print("[yellow]Falling back to pattern matching...[/yellow]")
         result = detector._fallback_intent_detection(query)
         method_used = "Fallback (Error Recovery)"

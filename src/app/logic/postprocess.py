@@ -1,16 +1,18 @@
 """Post-processing for citations, answer formatting, and validation."""
 
-import logging
 import re
 from typing import Any
 from typing import final
 
+from app.core.exceptions import GenerationError
+from app.core.logging_config import get_logger
 from app.core.models import CitationInfo
 from app.llm.mistral_client import MistralClient
 from app.llm.prompts import HALLUCINATION_DETECTION_PROMPT_TEMPLATE
+from app.llm.prompts import INSUFFICIENT_EVIDENCE_MESSAGE
 from app.llm.prompts import PII_DETECTION_PROMPT_TEMPLATE
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__.split(".")[-1])
 
 # Standardized error messages
 HALLUCINATION_ERROR_MESSAGE = "I apologize, but I cannot provide a reliable answer based on the available information. The response may contain inaccurate information that is not supported by the source documents."
@@ -89,110 +91,15 @@ class CitationProcessor:
         found_citations = self.citation_pattern.findall(answer)
         all_valid = True
 
-
         for citation_ref, page in found_citations:
             citation_key = f"{citation_ref} p.{page}"
             if citation_key not in valid_citations:
                 all_valid = False
-                logger.warning(f"Invalid citation found: '{citation_key}' - not in valid set")
+                logger.warning(
+                    f"Invalid citation found: '{citation_key}' - not in valid set"
+                )
 
         return answer, all_valid
-
-
-@final
-class AnswerValidator:
-    """Validates generated answers for quality and safety."""
-
-    def __init__(self):
-        # Keywords that might indicate hallucination or unsafe content
-        self.warning_phrases = {
-            "medical": [
-                "diagnosis",
-                "prescribe",
-                "medication",
-                "treatment",
-                "medical advice",
-            ],
-            "legal": [
-                "legal advice",
-                "lawsuit",
-                "attorney",
-                "court case",
-                "legal counsel",
-            ],
-            "financial": [
-                "investment advice",
-                "financial advice",
-                "buy stocks",
-                "invest in",
-            ],
-            "harmful": ["violence", "illegal", "dangerous", "harmful"],
-        }
-
-        self.insufficient_evidence_phrases = [
-            "insufficient evidence",
-            "cannot answer from the context",
-            "not enough information",
-            "unable to answer based on the provided context",
-        ]
-
-    def is_insufficient_evidence_response(self, answer: str) -> bool:
-        """
-        Check if the answer indicates insufficient evidence.
-
-        Args:
-            answer: Generated answer text
-
-        Returns:
-            True if answer indicates insufficient evidence
-        """
-        answer_lower = answer.lower()
-        return any(
-            phrase in answer_lower for phrase in self.insufficient_evidence_phrases
-        )
-
-    def check_for_warnings(self, answer: str) -> list[str]:
-        """
-        Check answer for potentially unsafe or concerning content.
-
-        Args:
-            answer: Generated answer text
-
-        Returns:
-            List of warning categories found
-        """
-        warnings = []
-        answer_lower = answer.lower()
-
-        for category, phrases in self.warning_phrases.items():
-            if any(phrase in answer_lower for phrase in phrases):
-                warnings.append(category)
-
-        return warnings
-
-    def add_disclaimers(self, answer: str, warnings: list[str]) -> str:
-        """
-        Add appropriate disclaimers based on detected warnings.
-
-        Args:
-            answer: Original answer
-            warnings: List of warning categories
-
-        Returns:
-            Answer with disclaimers added
-        """
-        disclaimers = {
-            "medical": "\n\n**Disclaimer:** This information is for educational purposes only and should not be considered medical advice. Consult with a healthcare professional for medical concerns.",
-            "legal": "\n\n**Disclaimer:** This information is for educational purposes only and should not be considered legal advice. Consult with a qualified attorney for legal matters.",
-            "financial": "\n\n**Disclaimer:** This information is for educational purposes only and should not be considered financial advice. Consult with a qualified financial advisor for investment decisions.",
-        }
-
-        modified_answer = answer
-        for warning in warnings:
-            if warning in disclaimers:
-                modified_answer += disclaimers[warning]
-
-        return modified_answer
 
 
 @final
@@ -250,7 +157,7 @@ class HallucinationDetector:
         except Exception as e:
             logger.error(f"Hallucination detection failed: {e}")
             # Default to safe mode - assume hallucination if check fails
-            return True, f"Detection error: {str(e)}"
+            raise GenerationError(f"Hallucination detection failed: {e}") from e
 
 
 @final
@@ -303,7 +210,7 @@ class PIIDetector:
         except Exception as e:
             logger.error(f"PII detection failed: {e}")
             # Default to safe mode - assume PII if check fails
-            return True, [f"detection_error: {str(e)}"]
+            raise GenerationError(f"PII detection failed: {e}") from e
 
 
 @final
@@ -312,7 +219,6 @@ class AnswerPostProcessor:
 
     def __init__(self, mistral_client: MistralClient | None = None):
         self.citation_processor = CitationProcessor()
-        self.answer_validator = AnswerValidator()
         self.hallucination_detector = HallucinationDetector(mistral_client)
         self.pii_detector = PIIDetector(mistral_client)
 
@@ -337,10 +243,7 @@ class AnswerPostProcessor:
         Returns:
             Tuple of (processed_answer, citations, insufficient_evidence)
         """
-        # Check for insufficient evidence
-        insufficient_evidence = self.answer_validator.is_insufficient_evidence_response(
-            answer
-        )
+        insufficient_evidence = INSUFFICIENT_EVIDENCE_MESSAGE in answer
 
         if insufficient_evidence:
             logger.info("Insufficient evidence phrase found")
@@ -369,7 +272,7 @@ class AnswerPostProcessor:
             self.citation_processor.validate_citations_in_answer(answer, chunks_info)
         )
         if not citations_valid:
-            logger.info("No valid citations found")
+            logger.info("Citations are not valid")
             return answer, [], True
 
         # Extract citation information

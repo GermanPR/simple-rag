@@ -6,6 +6,8 @@ from typing import Any
 import aiosqlite
 import numpy as np
 
+from app.core.exceptions import DatabaseError
+
 
 class DatabaseManager:
     """Manages SQLite database operations for the RAG system."""
@@ -71,7 +73,7 @@ class DatabaseManager:
             )
             result = cursor.lastrowid
             if result is None:
-                raise RuntimeError("Failed to insert document")
+                raise DatabaseError("Failed to insert document")
             return result
 
     def add_chunk(self, doc_id: int, page: int, position: int, text: str) -> int:
@@ -83,7 +85,7 @@ class DatabaseManager:
             )
             result = cursor.lastrowid
             if result is None:
-                raise RuntimeError("Failed to insert chunk")
+                raise DatabaseError("Failed to insert chunk")
             return result
 
     def store_embedding(self, chunk_id: int, embedding: np.ndarray):
@@ -120,27 +122,13 @@ class DatabaseManager:
             ]
 
     def store_tokens(self, chunk_id: int, token_freqs: dict[str, float]):
-        """Store token frequencies for a chunk."""
+        """Store token frequencies for a chunk (without updating df)."""
         with sqlite3.connect(self.db_path) as conn:
             # Insert tokens for this chunk
             for token, tf in token_freqs.items():
                 conn.execute(
                     "INSERT OR REPLACE INTO tokens (token, chunk_id, tf) VALUES (?, ?, ?)",
                     (token, chunk_id, tf),
-                )
-
-            # Update document frequencies
-            for token in token_freqs:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO df (token, df)
-                    VALUES (?, COALESCE((
-                        SELECT COUNT(DISTINCT chunk_id)
-                        FROM tokens
-                        WHERE token = ?
-                    ), 0))
-                """,
-                    (token, token),
                 )
 
     def get_token_stats(self, token: str) -> tuple[int, int]:
@@ -162,6 +150,19 @@ class DatabaseManager:
                 "SELECT token, tf FROM tokens WHERE chunk_id = ?", (chunk_id,)
             )
             return dict(cursor.fetchall())
+
+    def rebuild_df(self):
+        """Rebuild all df values in a single batch operation."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Clear existing df values
+            conn.execute("DELETE FROM df")
+            # Rebuild df values from tokens table
+            conn.execute("""
+                INSERT INTO df (token, df)
+                SELECT token, COUNT(DISTINCT chunk_id)
+                FROM tokens
+                GROUP BY token
+            """)
 
     def search_chunks_by_tokens(
         self, tokens: list[str], limit: int = 20
@@ -317,7 +318,7 @@ class AsyncDatabaseManager:
             result = cursor.lastrowid
             await conn.commit()
             if result is None:
-                raise RuntimeError("Failed to insert document")
+                raise DatabaseError("Failed to insert document")
             return result
 
     async def add_chunk(self, doc_id: int, page: int, position: int, text: str) -> int:
@@ -330,7 +331,7 @@ class AsyncDatabaseManager:
             result = cursor.lastrowid
             await conn.commit()
             if result is None:
-                raise RuntimeError("Failed to insert chunk")
+                raise DatabaseError("Failed to insert chunk")
             return result
 
     async def store_embedding(self, chunk_id: int, embedding: np.ndarray):
@@ -369,27 +370,13 @@ class AsyncDatabaseManager:
             ]
 
     async def store_tokens(self, chunk_id: int, token_freqs: dict[str, float]):
-        """Store token frequencies for a chunk."""
+        """Store token frequencies for a chunk (without updating df)."""
         async with aiosqlite.connect(self.db_path) as conn:
             # Insert tokens for this chunk
             for token, tf in token_freqs.items():
                 await conn.execute(
                     "INSERT OR REPLACE INTO tokens (token, chunk_id, tf) VALUES (?, ?, ?)",
                     (token, chunk_id, tf),
-                )
-
-            # Update document frequencies
-            for token in token_freqs:
-                await conn.execute(
-                    """
-                    INSERT OR REPLACE INTO df (token, df)
-                    VALUES (?, COALESCE((
-                        SELECT COUNT(DISTINCT chunk_id)
-                        FROM tokens
-                        WHERE token = ?
-                    ), 0))
-                """,
-                    (token, token),
                 )
             await conn.commit()
 
@@ -414,6 +401,20 @@ class AsyncDatabaseManager:
             )
             rows = await cursor.fetchall()
             return {str(row[0]): float(row[1]) for row in rows}
+
+    async def async_rebuild_df(self):
+        """Async version: Rebuild all df values in a single batch operation."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            # Clear existing df values
+            await conn.execute("DELETE FROM df")
+            # Rebuild df values from tokens table
+            await conn.execute("""
+                INSERT INTO df (token, df)
+                SELECT token, COUNT(DISTINCT chunk_id)
+                FROM tokens
+                GROUP BY token
+            """)
+            await conn.commit()
 
     async def search_chunks_by_tokens(
         self, tokens: list[str], limit: int = 20

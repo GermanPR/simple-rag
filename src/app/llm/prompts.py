@@ -22,6 +22,7 @@ How NOT TO WRITE CITATIONS:
 - ... [<filename> p.5] (actually using "<filename>" without replacing by the actual file name)
 - ... [<filename>Real name.pdf p.6] (using <filename> without replacing but adding after)
 - ... [Lord of the rings.pdf p.52, p.54, p.56] (putting multiple pages together from same source)
+- ... [Lord of the rings.pdf p.unexisting_number] (Not using a valid page number)
 
 How TO ACTUALLY WRITE CITATIONS: 
 - Input: From (filename="Lord of the rings.pdf" page="p.52"): the main character killed his father...
@@ -219,7 +220,9 @@ class PromptManager:
             if len(text) > max_chunk_display_length:
                 text = text[:497] + "..."
 
-            context_parts.append(f"[{i}] From (filename='{filename}' page='p.{page}'): {text}")
+            context_parts.append(
+                f"[{i}] From (filename='{filename}' page='p.{page}'): {text}"
+            )
 
         return "\n\n".join(context_parts)
 

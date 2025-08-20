@@ -1,16 +1,15 @@
 """LLM-based intent detection and query rewriting."""
 
-import logging
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
 
-from app.core.monitoring import monitor
+from app.core.logging_config import get_logger
 from app.llm.mistral_client import MistralClient
 from app.llm.prompts import INTENT_DETECTION_PROMPT
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__.split(".")[-1])
 
 
 QueryIntent = Literal["smalltalk", "qa", "structured", "comparison", "summary"]
@@ -46,7 +45,6 @@ class LLMIntentDetector:
     def __init__(self, mistral_client: MistralClient | None = None):
         self.mistral_client = mistral_client or MistralClient()
 
-    @monitor
     def detect_intent_and_rewrite(
         self,
         query: str,
@@ -104,6 +102,7 @@ class LLMIntentDetector:
 
         except Exception as e:
             logger.error(f"Error in LLM intent detection: {e}")
+            # Use fallback instead of raising to maintain functionality
             return self._fallback_intent_detection(query)
 
     def _fallback_intent_detection(self, query: str) -> IntentDetectionResult:
