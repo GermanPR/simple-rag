@@ -1,5 +1,8 @@
+from app.core.config import config
+
+
 def main():
-    print("Hello from simple-rag!")
+    print(config)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,8 @@ from app.core.config import config
 from app.llm.mistral_client import EmbeddingManager
 from app.llm.mistral_client import MistralClient
 from app.llm.prompts import prompt_manager
-from app.logic.intent import IntentDetector
+from app.logic.intent import ConversationMessage
+from app.logic.intent import LLMIntentDetector
 from app.logic.postprocess import answer_postprocessor
 
 # Define simple data classes for CLI use
@@ -157,7 +158,7 @@ def query(
         # Initialize components
         mistral_client = MistralClient()
         db_manager = DatabaseManager(db_path)
-        embedding_manager = EmbeddingManager(mistral_client)
+        embedding_manager = EmbeddingManager(db_manager, mistral_client)
         keyword_searcher = KeywordSearcher(db_manager)
         semantic_searcher = SemanticSearcher(db_manager)
 
@@ -252,10 +253,11 @@ def query(
         console.print("\n" + "=" * 50)
         console.print("[bold]Generating answer...[/bold]")
 
-        intent_detector = IntentDetector()
+        intent_detector = LLMIntentDetector()
 
         # Detect intent
-        intent = intent_detector.detect_intent(question)
+        intent_result = intent_detector.detect_intent_and_rewrite(question)
+        intent = intent_result.intent
         console.print(f"[dim]Detected intent: {intent}[/dim]")
 
         if not has_evidence:
@@ -375,6 +377,135 @@ def stats(db_path: str | None = typer.Option(None, "--db", help="Database path")
         console.print(doc_table)
 
     conn.close()
+
+
+@app.command()
+def test_intent(
+    query: str = typer.Argument(..., help="Query to analyze for intent and rewriting"),
+    history: list[str] = typer.Option(
+        None,
+        "--history",
+        "-h",
+        help="Conversation history (user:message or assistant:message format)",
+    ),
+    use_llm: bool = typer.Option(
+        True, "--llm/--fallback", help="Use LLM-based detection or fallback only"
+    ),
+    show_details: bool = typer.Option(
+        True, "--details/--simple", help="Show detailed analysis or simple output"
+    ),
+):
+    """Test the LLM-based intent detection and query rewriting system."""
+    console.print(
+        Panel("🧪 [bold blue]Intent Detection & Query Rewriting Test[/bold blue]")
+    )
+
+    # Parse conversation history
+    conversation_history = []
+    if history:
+        console.print(f"\n[dim]Processing {len(history)} history messages...[/dim]")
+        for msg in history:
+            if ":" not in msg:
+                console.print(
+                    f"[yellow]Warning: Invalid history format '{msg}'. Use 'user:message' or 'assistant:message'[/yellow]"
+                )
+                continue
+
+            role, content = msg.split(":", 1)
+            role = role.strip().lower()
+            content = content.strip()
+
+            if role not in ["user", "assistant"]:
+                console.print(
+                    f"[yellow]Warning: Invalid role '{role}'. Use 'user' or 'assistant'[/yellow]"
+                )
+                continue
+
+            conversation_history.append(ConversationMessage(role=role, content=content))
+
+    # Display conversation history if provided
+    if conversation_history:
+        console.print("\n[bold]Conversation History:[/bold]")
+        for _i, msg in enumerate(conversation_history, 1):
+            role_color = "blue" if msg.role == "user" else "green"
+            console.print(
+                f"  [{role_color}]{msg.role.title()}:[/{role_color}] {msg.content}"
+            )
+
+    console.print(f"\n[bold]Current Query:[/bold] [yellow]'{query}'[/yellow]")
+
+    # Initialize detector
+    try:
+        detector = LLMIntentDetector()
+        console.print("[dim]✅ LLMIntentDetector initialized[/dim]")
+    except Exception as e:
+        console.print(f"[red]❌ Failed to initialize LLMIntentDetector: {e}[/red]")
+        return
+
+    # Test intent detection
+    try:
+        if use_llm and config.MISTRAL_API_KEY:
+            console.print("[dim]🚀 Using LLM-based detection with Mistral AI...[/dim]")
+            result = detector.detect_intent_and_rewrite(query, conversation_history)
+            method_used = "LLM (Mistral AI)"
+        else:
+            if not config.MISTRAL_API_KEY:
+                console.print(
+                    "[yellow]⚠️ MISTRAL_API_KEY not set, using fallback detection[/yellow]"
+                )
+            else:
+                console.print("[dim]🔧 Using fallback detection as requested[/dim]")
+            result = detector._fallback_intent_detection(query)
+            method_used = "Fallback (Pattern Matching)"
+
+    except Exception as e:
+        console.print(f"[red]❌ Error during intent detection: {e}[/red]")
+        console.print("[yellow]Falling back to pattern matching...[/yellow]")
+        result = detector._fallback_intent_detection(query)
+        method_used = "Fallback (Error Recovery)"
+
+    # Display results
+    if show_details:
+        # Create results table
+        results_table = Table(
+            title="Intent Detection Results",
+            show_header=True,
+            header_style="bold magenta",
+        )
+        results_table.add_column("Attribute", style="cyan", width=20)
+        results_table.add_column("Value", style="white", width=60)
+
+        results_table.add_row("Method Used", f"[green]{method_used}[/green]")
+        results_table.add_row(
+            "Detected Intent", f"[bold yellow]{result.intent}[/bold yellow]"
+        )
+        results_table.add_row("Confidence", f"[green]{result.confidence:.2f}[/green]")
+        results_table.add_row("Original Query", f"[dim]{query}[/dim]")
+        results_table.add_row(
+            "Rewritten Query", f"[bold]{result.rewritten_query}[/bold]"
+        )
+        results_table.add_row("Reasoning", f"[dim]{result.reasoning}[/dim]")
+
+        console.print(results_table)
+
+        # Show response template
+        template = detector.get_response_template(result.intent)
+        console.print("\n[bold]Response Template:[/bold]")
+        console.print(Panel(template, border_style="dim"))
+
+    else:
+        # Simple output
+        console.print(
+            f"\n[green]✅ Intent:[/green] [bold]{result.intent}[/bold] ({result.confidence:.2f})"
+        )
+        console.print(
+            f"[green]✅ Rewritten:[/green] [bold]{result.rewritten_query}[/bold]"
+        )
+
+    # Show API status
+    console.print(
+        f"\n[dim]API Status: {'✅ Connected' if config.MISTRAL_API_KEY else '❌ No API Key'}[/dim]"
+    )
 
 
 if __name__ == "__main__":

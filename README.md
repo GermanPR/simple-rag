@@ -24,7 +24,7 @@ A complete Retrieval-Augmented Generation (RAG) system built from scratch for PD
          │                       │
          └───────────┬───────────┘
                      │
-            ┌─────────────────┐
+            ┌──────────────────┐
             │  SQLite Database │
             │  ┌─────────────┐ │
             │  │ Documents   │ │
@@ -32,15 +32,15 @@ A complete Retrieval-Augmented Generation (RAG) system built from scratch for PD
             │  │ Embeddings  │ │
             │  │ TF-IDF      │ │
             │  └─────────────┘ │
-            └─────────────────┘
+            └──────────────────┘
                      │
-            ┌─────────────────┐
-            │   Mistral AI    │
+            ┌──────────────────┐
+            │   Mistral AI     │
             │  ┌─────────────┐ │
             │  │ Embeddings  │ │
             │  │ Generation  │ │
             │  └─────────────┘ │
-            └─────────────────┘
+            └──────────────────┘
 ```
 
 ## 🔧 Pipeline Overview
@@ -156,7 +156,7 @@ Response:
   "citations": [
     {
       "chunk_id": 42,
-      "filename": "document1.pdf", 
+      "filename": "document1.pdf",
       "page": 3,
       "snippet": "Machine learning algorithms can automate..."
     }
@@ -214,7 +214,7 @@ uv run pytest --cov=app tests/
 
 Test coverage includes:
 - ✅ Chunking algorithms and overlap
-- ✅ TF-IDF calculation and indexing  
+- ✅ TF-IDF calculation and indexing
 - ✅ Semantic search and cosine similarity
 - ✅ Hybrid fusion and MMR diversification
 - ✅ Database operations
@@ -228,7 +228,7 @@ simple-rag/
 │   ├── main.py                    # FastAPI application
 │   ├── api/
 │   │   ├── ingest.py             # Document ingestion endpoint
-│   │   └── query.py              # Query processing endpoint  
+│   │   └── query.py              # Query processing endpoint
 │   ├── core/
 │   │   ├── config.py             # Configuration settings
 │   │   └── models.py             # Pydantic schemas
@@ -372,7 +372,7 @@ pydantic
 # Format code
 uv run ruff format .
 
-# Lint code  
+# Lint code
 uv run ruff check .
 
 # Type checking
@@ -384,7 +384,7 @@ uv run basedpyright
 This project is provided as-is for educational and research purposes. Please review the licenses of all dependencies:
 
 - **FastAPI**: MIT License
-- **Streamlit**: Apache 2.0 License  
+- **Streamlit**: Apache 2.0 License
 - **pdfminer.six**: MIT License
 - **NumPy**: BSD License
 - **Mistral AI**: API Terms of Service
@@ -394,7 +394,7 @@ This project is provided as-is for educational and research purposes. Please rev
 Built following the detailed requirements in `instructions.md`. This implementation demonstrates:
 
 - **No External Dependencies**: Custom TF-IDF, cosine similarity, and MMR implementations
-- **Production Ready**: Comprehensive error handling, logging, and testing  
+- **Production Ready**: Comprehensive error handling, logging, and testing
 - **Scalable Design**: Modular architecture with clear separation of concerns
 - **Educational Value**: Well-documented code showing RAG system internals
 

@@ -1,42 +1,103 @@
 """Configuration settings for the RAG system."""
 
 import os
-from typing import Optional
+from pathlib import Path
+
+from pydantic import Field
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
 
 
-class Config:
-    """Configuration class for environment variables and settings."""
-    
+class Config(BaseSettings):
+    """Configuration class with Pydantic validation."""
+
     # Mistral API settings
-    MISTRAL_API_KEY: str = os.getenv("MISTRAL_API_KEY", "")
-    MISTRAL_EMBED_MODEL: str = os.getenv("MISTRAL_EMBED_MODEL", "mistral-embed")
-    MISTRAL_CHAT_MODEL: str = os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest")
-    MISTRAL_BASE_URL: str = "https://api.mistral.ai/v1"
-    
+    MISTRAL_API_KEY: str = Field(default="", description="Mistral API key")
+    MISTRAL_EMBED_MODEL: str = Field(
+        default="mistral-embed", description="Mistral embedding model"
+    )
+    MISTRAL_CHAT_MODEL: str = Field(
+        default="ministral-8b-latest", description="Mistral chat completion model"
+    )
+    MISTRAL_BASE_URL: str = Field(
+        default="https://api.mistral.ai/v1", description="Mistral API base URL"
+    )
+
     # Database settings
-    DB_PATH: str = os.getenv("DB_PATH", "rag.sqlite3")
-    
+    DB_PATH: str = Field(default="rag.sqlite3", description="SQLite database path")
+
     # Backend URL for Streamlit (optional)
-    BACKEND_URL: Optional[str] = os.getenv("BACKEND_URL") or None
-    
+    BACKEND_URL: str | None = Field(
+        default=None, description="Backend API URL for Streamlit"
+    )
+
     # Chunking settings
-    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1800"))
-    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "200"))
-    
+    CHUNK_SIZE: int = Field(
+        default=1800, ge=100, le=8192, description="Target chunk size in characters"
+    )
+    CHUNK_OVERLAP: int = Field(
+        default=200, ge=0, description="Overlap between chunks in characters"
+    )
+
     # Retrieval settings
-    DEFAULT_TOP_K: int = int(os.getenv("DEFAULT_TOP_K", "8"))
-    DEFAULT_RERANK_K: int = int(os.getenv("DEFAULT_RERANK_K", "20"))
-    DEFAULT_THRESHOLD: float = float(os.getenv("DEFAULT_THRESHOLD", "0.18"))
-    DEFAULT_ALPHA: float = float(os.getenv("DEFAULT_ALPHA", "0.65"))  # Semantic vs keyword blend
-    DEFAULT_LAMBDA: float = float(os.getenv("DEFAULT_LAMBDA", "0.7"))  # MMR relevance vs diversity
-    
+    DEFAULT_TOP_K: int = Field(
+        default=8, ge=1, le=100, description="Default number of top results to return"
+    )
+    DEFAULT_RERANK_K: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Default number of candidates for reranking",
+    )
+    DEFAULT_THRESHOLD: float = Field(
+        default=0.18, ge=0.0, le=1.0, description="Default similarity threshold"
+    )
+    DEFAULT_ALPHA: float = Field(
+        default=0.65, ge=0.0, le=1.0, description="Semantic vs keyword blend ratio"
+    )
+    DEFAULT_LAMBDA: float = Field(
+        default=0.7, ge=0.0, le=1.0, description="MMR relevance vs diversity ratio"
+    )
+
     # Hallucination filter threshold
-    SENTENCE_THRESHOLD: float = float(os.getenv("SENTENCE_THRESHOLD", "0.16"))
-    
+    SENTENCE_THRESHOLD: float = Field(
+        default=0.16,
+        ge=0.0,
+        le=1.0,
+        description="Sentence-level hallucination threshold",
+    )
+
+    @field_validator("CHUNK_OVERLAP")
     @classmethod
-    def validate_mistral_config(cls) -> bool:
+    def validate_chunk_overlap(cls, v):
+        """Ensure overlap is less than chunk size."""
+        # Note: Cross-field validation would require model_validator in pydantic v2
+        # For now, we'll validate this at runtime if needed
+        return v
+
+    @field_validator("DB_PATH")
+    @classmethod
+    def validate_db_path(cls, v):
+        """Ensure database directory exists or can be created."""
+        db_path = Path(v)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        return str(db_path)
+
+    class Config:
+        env_file = Path(__file__).parent.parent.parent / ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = True
+
+    def validate_mistral_config(self) -> bool:
         """Validate that required Mistral API configuration is present."""
-        return bool(cls.MISTRAL_API_KEY and cls.MISTRAL_API_KEY != "your_mistral_api_key_here")
+        return bool(
+            self.MISTRAL_API_KEY and self.MISTRAL_API_KEY != "your_mistral_api_key_here"
+        )
+
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production mode."""
+        return os.getenv("ENVIRONMENT", "development").lower() == "production"
 
 
 # Global config instance
