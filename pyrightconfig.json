@@ -1,0 +1,9 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "recommended",
+  "reportMissingTypeStubs": false,
+  "executionEnvironments": [
+    {"root": "src"}
+  ]
+}

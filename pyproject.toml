@@ -38,6 +38,10 @@ dev = [
 [tool.uv]
 package = true
 
+[tool.ruff]
+line-length = 90
+target-version = "py313"
+
 [project.scripts]
 rag = "app.cli.commands:app"
 
