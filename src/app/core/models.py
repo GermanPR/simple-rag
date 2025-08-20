@@ -119,3 +119,32 @@ class HealthResponse(BaseModel):
     mistral_api_configured: bool
     total_documents: int
     total_chunks: int
+
+
+class MessageResponse(BaseModel):
+    """Generic message response for operations like delete."""
+
+    success: bool = True
+    message: str
+
+
+class QueryServiceResult(BaseModel):
+    """Result from the RAG query service."""
+
+    answer: str = Field(..., description="The generated answer")
+    citations: list[CitationInfo] = Field(
+        default=[], description="Supporting citations"
+    )
+    insufficient_evidence: bool = Field(
+        default=False, description="Whether evidence was insufficient"
+    )
+    intent: str = Field(default="qa", description="Detected query intent")
+    debug_info: DebugInfo | None = Field(default=None, description="Debug information")
+    error: str | None = Field(default=None, description="Error message if any")
+    success: bool = Field(default=True, description="Whether the operation succeeded")
+
+    def __init__(self, **data):
+        # Automatically set success based on whether error is None
+        if "success" not in data:
+            data["success"] = data.get("error") is None
+        super().__init__(**data)

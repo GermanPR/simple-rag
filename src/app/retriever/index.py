@@ -173,6 +173,7 @@ class DatabaseManager:
         placeholders = ",".join("?" for _ in tokens)
         with sqlite3.connect(self.db_path) as conn:
             from math import log
+
             conn.create_function("LOG", 1, log)
             cursor = conn.execute(
                 f"""
@@ -239,6 +240,17 @@ class DatabaseManager:
                 }
                 for row in cursor.fetchall()
             ]
+
+    def clear_all_data(self):
+        """Delete all data from the database (but keep table structure)."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Delete in reverse order of dependencies to avoid foreign key errors
+            conn.execute("DELETE FROM tokens")
+            conn.execute("DELETE FROM df")
+            conn.execute("DELETE FROM embeddings")
+            conn.execute("DELETE FROM chunks")
+            conn.execute("DELETE FROM documents")
+            conn.commit()
 
 
 class AsyncDatabaseManager:
@@ -479,3 +491,14 @@ class AsyncDatabaseManager:
                 }
                 for row in rows
             ]
+
+    async def clear_all_data(self):
+        """Delete all data from the database (but keep table structure)."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            # Delete in reverse order of dependencies to avoid foreign key errors
+            await conn.execute("DELETE FROM tokens")
+            await conn.execute("DELETE FROM df")
+            await conn.execute("DELETE FROM embeddings")
+            await conn.execute("DELETE FROM chunks")
+            await conn.execute("DELETE FROM documents")
+            await conn.commit()

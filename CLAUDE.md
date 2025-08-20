@@ -63,14 +63,17 @@ BACKEND_URL=http://localhost:8000 uv run streamlit run ui/streamlit_app.py
 # Code formatting and linting
 uv run ruff format .
 uv run ruff check .
+uv run ruff check --fix .  # Auto-fix issues
 
 # Type checking
 uv run basedpyright
+uv run basedpyright --level ERROR  # Show only errors
 
 # Run tests
 uv run pytest
-uv run pytest tests/test_chunker.py -v
-uv run pytest --cov=app tests/
+uv run pytest src/tests/test_chunker.py -v  # Single test file
+uv run pytest --cov=app src/tests/  # With coverage
+uv run pytest -k "test_tfidf" # Run tests matching pattern
 ```
 
 ### CLI Commands
@@ -140,6 +143,12 @@ Create `.env` file from `.env.example` for local development.
 
 ## Key Implementation Details
 
+### Core Architecture Pattern
+The system follows a **service-oriented architecture** with clear separation:
+- **RAGQueryService** (`app/services/query_service.py`): Unified service encapsulating the entire RAG pipeline, used by both sync (CLI/UI) and async (API) interfaces
+- **Layered Components**: API endpoints delegate to services, services coordinate retrieval and generation, core components handle specific algorithms
+- **Database Abstraction**: Both sync (`DatabaseManager`) and async (`AsyncDatabaseManager`) versions for different contexts
+
 ### Custom Implementations (No External Libraries)
 - **TF-IDF**: Custom tokenization, term frequency (`1 + log(count)`), document frequency indexing
 - **Semantic Search**: L2-normalized Mistral embeddings with cosine similarity (dot product)
@@ -153,11 +162,15 @@ Create `.env` file from `.env.example` for local development.
 - `df`: Document frequency by chunk for TF-IDF
 - `tokens`: Term frequency per chunk for TF-IDF
 
-### Safety Features
-- Evidence threshold refusal (default: 0.18 similarity)
-- Citation requirements: All answers include `[filename p.X]` citations
-- Intent detection for different response formats
-- Optional post-hoc hallucination filtering
+### Safety and Guardrails System
+The system implements comprehensive safety checks in the postprocessing pipeline:
+- **Evidence threshold refusal** (default: 0.18 similarity)
+- **Citation requirements**: All answers include `[filename p.X]` citations
+- **Intent detection**: LLM-based query analysis with fallback to pattern matching
+- **Hallucination detection**: LLM-based verification that answers are grounded in context
+- **PII detection**: LLM-based identification of personally identifiable information
+- **Fail-safe behavior**: Defaults to blocking content when safety checks fail
+- **Standardized error messages**: Clear user-facing messages for blocked content
 
 ### Performance Monitoring
 - Built-in performance monitoring with `@performance_monitor` decorator
@@ -172,6 +185,10 @@ The test suite covers core algorithms:
 - `test_tfidf.py`: TF-IDF calculation and scoring
 - `test_semantic.py`: Cosine similarity and ranking
 - `test_fusion.py`: Hybrid fusion and MMR behavior
+- `test_config.py`: Configuration validation
+- `test_monitoring.py`: Performance monitoring functionality
+
+Tests are located in `src/tests/` and use pytest with fixtures for database setup.
 
 ## API Endpoints
 
@@ -180,10 +197,21 @@ The test suite covers core algorithms:
 - `GET /health`: System health check
 - `GET /`: API information
 
-## Important Notes
+## Important Implementation Notes
 
-- The system stores embeddings as float32 BLOBs in SQLite, not in external vector databases
-- All retrieval algorithms are implemented from scratch per the requirements
-- The Streamlit UI can operate independently with its own SQLite database or connect to the FastAPI backend
-- Mistral AI is used for both embeddings and text generation
-- The system enforces strict grounding - answers must be supported by retrieved chunks or return "insufficient evidence"
+### Code Organization Principles
+- **Async/Sync Duality**: Many components have both sync and async versions (e.g., `DatabaseManager`/`AsyncDatabaseManager`) to support different usage contexts
+- **Interface Segregation**: Core interfaces defined in `app/core/interfaces.py` allow for clean testing and future extensibility
+- **Pydantic Models**: All API schemas and internal data structures use Pydantic for validation (`app/core/models.py`)
+- **Global State Management**: Singleton pattern for shared resources like Mistral client and database connections
+
+### Data Flow Architecture
+- **Ingestion Flow**: `PDF → Chunker → DatabaseManager → EmbeddingManager → SQLite`
+- **Query Flow**: `Query → RAGQueryService → HybridRetriever → AnswerPostProcessor → Response`
+- **Safety Pipeline**: Every generated answer passes through hallucination and PII detection before user delivery
+
+### Key Technical Decisions
+- **SQLite as Vector Store**: Embeddings stored as float32 BLOBs for simplicity and portability
+- **Custom Algorithm Implementations**: All retrieval algorithms built from scratch without external RAG libraries
+- **LLM-Powered Safety**: Uses Mistral API for both content generation and safety verification
+- **Fail-Safe Design**: Safety checks default to blocking content when API calls fail, ensuring secure operation

@@ -38,8 +38,14 @@ dev = [
 [tool.uv]
 package = true
 
+[tool.ruff]
+line-length = 90
+target-version = "py313"
+
 [project.scripts]
 rag = "app.cli.commands:app"
 
 [tool.poe.tasks]
 app = "streamlit run src/ui/streamlit_app.py"
+test-api = "bash -c 'echo \"Starting FastAPI server...\" && uv run uvicorn app.main:app --port 8001 & SERVER_PID=$!; sleep 5; echo \"Testing health endpoint:\"; curl -s http://localhost:8001/health; echo \"\"; echo \"Testing query endpoint:\"; curl -s -X POST http://localhost:8001/query -H \"Content-Type: application/json\" -d \"{\\\"query\\\":\\\"What is this about? Do not mention any PII\\\"}\" | uv run python -m json.tool; kill $SERVER_PID 2>/dev/null || true'"
+test-query = "rag query \"What are the main topics discussed?\" --k 5"

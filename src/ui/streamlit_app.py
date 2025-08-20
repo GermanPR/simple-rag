@@ -13,6 +13,7 @@ import streamlit as st
 
 # Constants
 HTTP_OK = 200
+HTTP_NOT_FOUND = 404
 
 # Add app directory to path so we can import our modules
 app_root = Path(__file__).parent.parent
@@ -24,14 +25,11 @@ from app.ingest.chunker import chunk_text
 from app.ingest.pdf_extractor import extract_pdf_text
 from app.llm.mistral_client import get_embedding_manager
 from app.llm.mistral_client import get_mistral_client
-from app.llm.prompts import prompt_manager
 from app.logic.intent import ConversationMessage
-from app.logic.intent import LLMIntentDetector
-from app.logic.postprocess import answer_postprocessor
-from app.retriever.fusion import HybridRetriever
 from app.retriever.index import DatabaseManager
 from app.retriever.keyword import KeywordSearcher
 from app.retriever.semantic import SemanticSearcher
+from app.services.query_service import RAGQueryService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -88,6 +86,7 @@ class StreamlitRAG:
         self.semantic_searcher = None
         self.mistral_client = None
         self.embedding_manager = None
+        self.query_service = None
 
         # Initialize session state
         self._init_session_state()
@@ -123,6 +122,13 @@ class StreamlitRAG:
             self.semantic_searcher = SemanticSearcher(self.db_manager)
             self.mistral_client = get_mistral_client()
             self.embedding_manager = get_embedding_manager(self.db_manager)
+
+            # Initialize query service
+            self.query_service = RAGQueryService(
+                db_path=db_path,
+                mistral_client=self.mistral_client,
+                db_manager=self.db_manager,
+            )
 
         except Exception as e:
             st.error(f"Failed to initialize local components: {e}")
@@ -366,6 +372,45 @@ class StreamlitRAG:
                 st.error(f"❌ Error during upload: {e}")
                 logger.error(f"Upload error: {e}")
 
+    def _clear_database(self):
+        """Clear all data from the database."""
+        try:
+            if self.db_manager is not None:
+                self.db_manager.clear_all_data()
+                # Clear chat history as well since context is now invalid
+                st.session_state.messages = []
+                # Clear any caches
+                if self.semantic_searcher is not None:
+                    self.semantic_searcher.clear_cache()
+        except Exception as e:
+            st.error(f"❌ Error clearing database: {e}")
+            logger.error(f"Database clear error: {e}")
+
+    def _clear_database_backend(self):
+        """Clear all data from the backend database via API."""
+        try:
+
+            async def clear_backend_data():
+                async with httpx.AsyncClient() as client:
+                    response = await client.delete(
+                        f"{self.backend_url}/collections", timeout=30
+                    )
+                    if response.status_code == HTTP_OK:
+                        return response.json()
+                    if response.status_code == HTTP_NOT_FOUND:
+                        return {"error": "No collections found to delete"}
+                    return {"error": response.text}
+
+            result = asyncio.run(clear_backend_data())
+            if "error" not in result:
+                # Clear chat history as well since context is now invalid
+                st.session_state.messages = []
+            else:
+                st.error(f"❌ Backend clear failed: {result['error']}")
+        except Exception as e:
+            st.error(f"❌ Error clearing backend database: {e}")
+            logger.error(f"Backend database clear error: {e}")
+
     def _query_backend(
         self, query: str, params: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -395,32 +440,11 @@ class StreamlitRAG:
             return None
 
     def _query_local(self, query: str, params: dict[str, Any]) -> dict[str, Any] | None:
-        """Query using local components."""
-        if (
-            self.db_manager is None
-            or self.keyword_searcher is None
-            or self.semantic_searcher is None
-            or self.mistral_client is None
-            or self.embedding_manager is None
-        ):
-            return {"error": "Local components not initialized"}
+        """Query using local components via the unified query service."""
+        if self.query_service is None:
+            return {"error": "Query service not initialized"}
 
         try:
-            # Initialize components
-            alpha = params.get("alpha", 0.65)
-            lambda_param = params.get("lambda_param", 0.7)
-
-            hybrid_retriever = HybridRetriever(
-                db_manager=self.db_manager,
-                keyword_searcher=self.keyword_searcher,
-                semantic_searcher=self.semantic_searcher,
-                alpha=alpha,
-                lambda_param=lambda_param,
-            )
-
-            # LLM-based intent detection and query rewriting
-            llm_intent_detector = LLMIntentDetector(self.mistral_client)
-
             # Prepare conversation history from Streamlit session state
             conversation_history = []
             if "conversation_history" in st.session_state:
@@ -431,62 +455,25 @@ class StreamlitRAG:
                     for msg in history
                 ]
 
-            # Detect intent and rewrite query with conversation context
-            intent_result = llm_intent_detector.detect_intent_and_rewrite(
-                query, conversation_history
-            )
-
-            detected_intent = intent_result.intent
-            processed_query = intent_result.rewritten_query
-
-            # Handle smalltalk
-            if detected_intent == "smalltalk":
-                return {
-                    "answer": llm_intent_detector.get_response_template(
-                        detected_intent
-                    ),
-                    "citations": [],
-                    "insufficient_evidence": False,
-                    "intent": detected_intent,
-                }
-
-            # Generate embedding
-            query_embedding = self.embedding_manager.embed_query(processed_query)
-
-            # Retrieve
-            retrieved_results = hybrid_retriever.retrieve(
-                query=processed_query,
-                query_embedding=query_embedding,
+            # Use the unified query service
+            result = self.query_service.query(
+                query=query,
+                conversation_history=conversation_history,
                 top_k=params.get("top_k", 8),
                 rerank_k=params.get("rerank_k", 20),
                 threshold=params.get("threshold", 0.18),
+                alpha=params.get("alpha", 0.65),
+                lambda_param=params.get("lambda_param", 0.7),
                 use_mmr=params.get("use_mmr", True),
             )
 
-            if not retrieved_results:
-                return {
-                    "answer": "Insufficient evidence to answer this question.",
-                    "citations": [],
-                    "insufficient_evidence": True,
-                    "intent": detected_intent,
-                }
+            if not result.success:
+                st.error(f"Query service error: {result.error}")
+                return None
 
-            # Generate answer
-            chunks_info = [chunk_info for _, _, chunk_info in retrieved_results]
-            context = prompt_manager.format_context(chunks_info)
-            messages = prompt_manager.get_prompt(detected_intent, query, context)
-
-            raw_answer = self.mistral_client.chat_completion(
-                messages=messages, temperature=0.1, max_tokens=1000
-            )
-
-            # Post-process
-            processed_answer, citations, insufficient_evidence = (
-                answer_postprocessor.process_answer(raw_answer, chunks_info)
-            )
-
+            # Convert result to expected format
             return {
-                "answer": processed_answer,
+                "answer": result.answer,
                 "citations": [
                     {
                         "chunk_id": c.chunk_id,
@@ -494,10 +481,10 @@ class StreamlitRAG:
                         "page": c.page,
                         "snippet": c.snippet,
                     }
-                    for c in citations
+                    for c in result.citations
                 ],
-                "insufficient_evidence": insufficient_evidence,
-                "intent": detected_intent,
+                "insufficient_evidence": result.insufficient_evidence,
+                "intent": result.intent,
             }
 
         except Exception as e:
@@ -555,16 +542,10 @@ class StreamlitRAG:
                 if result:
                     answer = result["answer"]
                     citations = result.get("citations", [])
-                    insufficient_evidence = result.get("insufficient_evidence", False)
 
-                    # Display answer
-                    if insufficient_evidence:
-                        st.markdown(
-                            f'<p class="insufficient-evidence">{answer}</p>',
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(answer)
+
+                    # Display answer without special formatting
+                    st.markdown(answer)
 
                     # Add to message history
                     message_data = {
@@ -607,6 +588,23 @@ class StreamlitRAG:
         # Clear chat button
         if st.sidebar.button("🗑️ Clear Chat History"):
             st.session_state.messages = []
+            st.rerun()
+
+        # Clear database button
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 🗃️ Database Management")
+        if st.sidebar.button(
+            "🗑️ Clear All Data",
+            type="secondary",
+            help="Delete all documents and chunks from the database",
+        ) and st.sidebar.checkbox(
+            "I understand this will delete all data", key="confirm_delete"
+        ):
+            if self.use_backend:
+                self._clear_database_backend()
+            else:
+                self._clear_database()
+            st.sidebar.success("✅ Database cleared!")
             st.rerun()
 
 

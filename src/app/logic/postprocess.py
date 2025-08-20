@@ -1,11 +1,24 @@
 """Post-processing for citations, answer formatting, and validation."""
 
+import logging
 import re
 from typing import Any
+from typing import final
 
 from app.core.models import CitationInfo
+from app.llm.mistral_client import MistralClient
+from app.llm.prompts import HALLUCINATION_DETECTION_PROMPT_TEMPLATE
+from app.llm.prompts import PII_DETECTION_PROMPT_TEMPLATE
+
+logger = logging.getLogger(__name__)
+
+# Standardized error messages
+HALLUCINATION_ERROR_MESSAGE = "I apologize, but I cannot provide a reliable answer based on the available information. The response may contain inaccurate information that is not supported by the source documents."
+
+PII_ERROR_MESSAGE = "I apologize, but I cannot provide this response as it may contain personally identifiable information that should not be shared."
 
 
+@final
 class CitationProcessor:
     """Processes and validates citations in generated answers."""
 
@@ -59,63 +72,34 @@ class CitationProcessor:
         Returns:
             Tuple of (validated_answer, all_citations_valid)
         """
-        # Build set of valid citations from available chunks
+        # Build set of valid citations from available chunks (handle all possible formats)
         valid_citations = set()
-        for chunk in available_chunks:
+        filename_to_page = {}
+        for i, chunk in enumerate(available_chunks, 1):
             filename = chunk.get("filename", "unknown")
             page = chunk.get("page", 1)
-            valid_citations.add(f"{filename} p.{page}")
+            # Add multiple citation formats that LLM might use:
+            valid_citations.add(f"{filename} p.{page}")  # [filename.pdf p.5]
+            # Store mapping for replacement
+            if filename not in filename_to_page:
+                filename_to_page[filename] = set()
+            filename_to_page[filename].add(page)
 
         # Find all citations in the answer
         found_citations = self.citation_pattern.findall(answer)
         all_valid = True
 
-        for filename, page in found_citations:
-            citation_key = f"{filename} p.{page}"
+
+        for citation_ref, page in found_citations:
+            citation_key = f"{citation_ref} p.{page}"
             if citation_key not in valid_citations:
                 all_valid = False
-                # Could remove invalid citation or flag it
-                # For now, we'll keep it but note the validation failure
+                logger.warning(f"Invalid citation found: '{citation_key}' - not in valid set")
 
         return answer, all_valid
 
-    def ensure_citations_present(
-        self, answer: str, chunks_info: list[dict[str, Any]], min_citations: int = 1
-    ) -> str:
-        """
-        Ensure the answer contains minimum number of citations.
 
-        Args:
-            answer: Generated answer
-            chunks_info: Available chunks for citation
-            min_citations: Minimum required citations
-
-        Returns:
-            Answer with citations added if necessary
-        """
-        existing_citations = len(self.citation_pattern.findall(answer))
-
-        if existing_citations >= min_citations:
-            return answer
-
-        # Add citations from top chunks if missing
-        needed_citations = min_citations - existing_citations
-        citations_to_add = []
-
-        for chunk in chunks_info[:needed_citations]:
-            filename = chunk.get("filename", "unknown")
-            page = chunk.get("page", 1)
-            citation = f"[{filename} p.{page}]"
-            citations_to_add.append(citation)
-
-        if citations_to_add:
-            # Add citations at the end
-            citations_text = " " + " ".join(citations_to_add)
-            answer += citations_text
-
-        return answer
-
-
+@final
 class AnswerValidator:
     """Validates generated answers for quality and safety."""
 
@@ -211,26 +195,144 @@ class AnswerValidator:
         return modified_answer
 
 
+@final
+class HallucinationDetector:
+    """LLM-based detector for hallucinations in generated answers."""
+
+    def __init__(self, mistral_client: MistralClient | None = None):
+        self.mistral_client = mistral_client or MistralClient()
+
+    def check_hallucination(self, answer: str, context: str) -> tuple[bool, str]:
+        """
+        Check if the answer contains hallucinations based on the provided context.
+
+        Args:
+            answer: Generated answer to check
+            context: Original context chunks used for generation
+
+        Returns:
+            Tuple of (is_hallucinated, reasoning)
+        """
+        if not answer.strip() or not context.strip():
+            return False, "Empty answer or context"
+
+        hallucination_prompt = HALLUCINATION_DETECTION_PROMPT_TEMPLATE.format(
+            context=context, answer=answer
+        )
+
+        try:
+            messages = [{"role": "user", "content": hallucination_prompt}]
+
+            response = self.mistral_client.chat_completion(
+                messages=messages, temperature=0.0, max_tokens=150
+            )
+
+            response_lower = response.lower().strip()
+            is_hallucinated = "hallucination" in response_lower
+
+            # Extract reasoning from response
+            lines = response.strip().split("\n")
+            MAX_LINES_FOR_SINGLE_RESPONSE = 2
+            reasoning = (
+                response
+                if len(lines) <= MAX_LINES_FOR_SINGLE_RESPONSE
+                else " ".join(lines[1:]).strip()
+            )
+            if not reasoning:
+                reasoning = "LLM response analysis"
+
+            logger.info(
+                f"Hallucination check: {'DETECTED' if is_hallucinated else 'PASSED'} - {reasoning}"
+            )
+
+            return is_hallucinated, reasoning
+
+        except Exception as e:
+            logger.error(f"Hallucination detection failed: {e}")
+            # Default to safe mode - assume hallucination if check fails
+            return True, f"Detection error: {str(e)}"
+
+
+@final
+class PIIDetector:
+    """LLM-based detector for personally identifiable information (PII)."""
+
+    def __init__(self, mistral_client: MistralClient | None = None):
+        self.mistral_client = mistral_client or MistralClient()
+
+    def check_pii(self, answer: str) -> tuple[bool, list[str]]:
+        """
+        Check if the answer contains personally identifiable information.
+
+        Args:
+            answer: Generated answer to check for PII
+
+        Returns:
+            Tuple of (contains_pii, list_of_pii_types_found)
+        """
+        if not answer.strip():
+            return False, []
+
+        pii_prompt = PII_DETECTION_PROMPT_TEMPLATE.format(answer=answer)
+
+        try:
+            messages = [{"role": "user", "content": pii_prompt}]
+
+            response = self.mistral_client.chat_completion(
+                messages=messages, temperature=0.0, max_tokens=100
+            )
+
+            response_lower = response.lower().strip()
+            contains_pii = "pii_detected" in response_lower
+
+            # Extract PII types if detected
+            pii_types = []
+            if contains_pii:
+                lines = response.strip().split("\n")
+                if len(lines) > 1:
+                    # Parse the second line for PII types
+                    types_line = lines[1].strip()
+                    pii_types = [t.strip() for t in types_line.split(",") if t.strip()]
+
+            logger.info(
+                f"PII check: {'DETECTED' if contains_pii else 'PASSED'} - Types: {pii_types}"
+            )
+
+            return contains_pii, pii_types
+
+        except Exception as e:
+            logger.error(f"PII detection failed: {e}")
+            # Default to safe mode - assume PII if check fails
+            return True, [f"detection_error: {str(e)}"]
+
+
+@final
 class AnswerPostProcessor:
     """Main class for post-processing generated answers."""
 
-    def __init__(self):
+    def __init__(self, mistral_client: MistralClient | None = None):
         self.citation_processor = CitationProcessor()
         self.answer_validator = AnswerValidator()
+        self.hallucination_detector = HallucinationDetector(mistral_client)
+        self.pii_detector = PIIDetector(mistral_client)
 
     def process_answer(
         self,
         answer: str,
         chunks_info: list[dict[str, Any]],
-        add_disclaimers: bool = True,
+        context: str | None = None,
+        enable_hallucination_check: bool = True,
+        enable_pii_check: bool = True,
     ) -> tuple[str, list[CitationInfo], bool]:
         """
-        Post-process a generated answer.
+        Post-process a generated answer with safety checks.
 
         Args:
             answer: Raw generated answer
             chunks_info: Chunks used for context
-            add_disclaimers: Whether to add safety disclaimers
+            context: Original context string used for generation
+            enable_hallucination_check: Whether to run hallucination detection
+            enable_pii_check: Whether to run PII detection
 
         Returns:
             Tuple of (processed_answer, citations, insufficient_evidence)
@@ -241,30 +343,39 @@ class AnswerPostProcessor:
         )
 
         if insufficient_evidence:
+            logger.info("Insufficient evidence phrase found")
             return answer, [], True
+
+        # Run PII check first (faster and prevents exposure of sensitive data)
+        if enable_pii_check:
+            contains_pii, pii_types = self.pii_detector.check_pii(answer)
+            if contains_pii:
+                logger.warning(f"PII detected in answer. Types: {pii_types}")
+                return PII_ERROR_MESSAGE, [], True
+
+        # Run hallucination check if context is provided
+        if enable_hallucination_check and context:
+            is_hallucinated, reasoning = (
+                self.hallucination_detector.check_hallucination(answer, context)
+            )
+            if is_hallucinated:
+                logger.warning(
+                    f"Hallucination detected in answer. Reasoning: {reasoning}"
+                )
+                return HALLUCINATION_ERROR_MESSAGE, [], True
 
         # Validate citations
         validated_answer, citations_valid = (
             self.citation_processor.validate_citations_in_answer(answer, chunks_info)
         )
-
-        # Ensure minimum citations are present
-        answer_with_citations = self.citation_processor.ensure_citations_present(
-            validated_answer, chunks_info, min_citations=1
-        )
-
-        # Check for warnings and add disclaimers
-        if add_disclaimers:
-            warnings = self.answer_validator.check_for_warnings(answer_with_citations)
-            if warnings:
-                answer_with_citations = self.answer_validator.add_disclaimers(
-                    answer_with_citations, warnings
-                )
+        if not citations_valid:
+            logger.info("No valid citations found")
+            return answer, [], True
 
         # Extract citation information
         citations = self.citation_processor.extract_citations_from_chunks(chunks_info)
 
-        return answer_with_citations, citations, False
+        return validated_answer, citations, False
 
 
 # Global post-processor instance

@@ -9,19 +9,12 @@ from fastapi import Depends
 from fastapi import HTTPException
 
 from app.core.config import config
-from app.core.models import DebugInfo
 from app.core.models import QueryRequest
 from app.core.models import QueryResponse
-from app.llm.mistral_client import get_async_embedding_manager
 from app.llm.mistral_client import get_mistral_client
-from app.llm.prompts import prompt_manager
 from app.logic.intent import ConversationMessage
-from app.logic.intent import LLMIntentDetector
-from app.logic.postprocess import answer_postprocessor
-from app.retriever.fusion import AsyncHybridRetriever
 from app.retriever.index import AsyncDatabaseManager
-from app.retriever.keyword import AsyncKeywordSearcher
-from app.retriever.semantic import AsyncSemanticSearcher
+from app.services.query_service import AsyncRAGQueryService
 
 logger = logging.getLogger(__name__)
 
@@ -60,30 +53,12 @@ async def query_documents(
         )
 
     try:
-        # Initialize components
+        # Initialize the async query service
         mistral_client = get_mistral_client()
-        embedding_manager = get_async_embedding_manager(db_manager)
-        keyword_searcher = AsyncKeywordSearcher(db_manager)
-        semantic_searcher = AsyncSemanticSearcher(db_manager)
-
-        # Set parameters (use request values or defaults)
-        alpha = request.alpha if request.alpha is not None else config.DEFAULT_ALPHA
-        lambda_param = (
-            request.lambda_param
-            if request.lambda_param is not None
-            else config.DEFAULT_LAMBDA
-        )
-
-        hybrid_retriever = AsyncHybridRetriever(
+        query_service = AsyncRAGQueryService(
             async_db_manager=db_manager,
-            async_keyword_searcher=keyword_searcher,
-            async_semantic_searcher=semantic_searcher,
-            alpha=alpha,
-            lambda_param=lambda_param,
+            mistral_client=mistral_client,
         )
-
-        # LLM-based intent detection and query rewriting
-        llm_intent_detector = LLMIntentDetector(mistral_client)
 
         # Prepare conversation history if available
         conversation_history = []
@@ -93,106 +68,36 @@ async def query_documents(
                 for msg in request.conversation_history[-6:]  # Last 3 exchanges
             ]
 
-        # Detect intent and rewrite query with conversation context
-        intent_result = llm_intent_detector.detect_intent_and_rewrite(
-            request.query, conversation_history
-        )
-
-        detected_intent = intent_result.intent
-        processed_query = intent_result.rewritten_query
-
-        # Handle smalltalk separately
-        if detected_intent == "smalltalk":
-            return QueryResponse(
-                answer=llm_intent_detector.get_response_template(detected_intent),
-                citations=[],
-                insufficient_evidence=False,
-                intent=detected_intent,
-                success=True,
-            )
-
-        # Generate query embedding
-        try:
-            query_embedding = await embedding_manager.embed_query(processed_query)
-        except Exception as e:
-            logger.error(f"Failed to embed query: {e}")
-            raise HTTPException(
-                status_code=500, detail="Failed to process query embedding"
-            ) from e
-
-        # Perform hybrid retrieval
-        retrieved_results = await hybrid_retriever.retrieve(
-            query=processed_query,
-            query_embedding=query_embedding,
+        # Use the unified query service
+        result = await query_service.query(
+            query=request.query,
+            conversation_history=conversation_history,
             top_k=request.top_k,
             rerank_k=request.rerank_k,
             threshold=request.threshold,
+            alpha=request.alpha,
+            lambda_param=request.lambda_param,
             use_mmr=request.use_mmr,
         )
 
-        # Check for insufficient evidence
-        if not retrieved_results:
-            return QueryResponse(
-                answer="Insufficient evidence to answer this question.",
-                citations=[],
-                insufficient_evidence=True,
-                intent=detected_intent,
-                debug=DebugInfo(
-                    semantic_top1=0.0,
-                    alpha=alpha,
-                    lambda_param=lambda_param,
-                    total_chunks=0,
-                    keyword_results=0,
-                    semantic_results=0,
-                    fused_results=0,
-                ),
-                success=True,
-            )
-
-        # Prepare context for generation
-        chunks_info = [chunk_info for _, _, chunk_info in retrieved_results]
-        context = prompt_manager.format_context(chunks_info)
-
-        # Generate answer using appropriate prompt template
-        messages = prompt_manager.get_prompt(detected_intent, request.query, context)
-
-        try:
-            raw_answer = await mistral_client.chat_completion_async(
-                messages=messages, temperature=0.1, max_tokens=1000
-            )
-        except Exception as e:
-            logger.error(f"Failed to generate answer: {e}")
+        # Handle service errors
+        if not result.success:
+            logger.error(f"Query service error: {result.error}")
             raise HTTPException(
-                status_code=500, detail="Failed to generate answer"
-            ) from e
-
-        # Post-process answer
-        processed_answer, citations, insufficient_evidence = (
-            answer_postprocessor.process_answer(raw_answer, chunks_info)
-        )
-
-        # Prepare debug information
-        debug_info = DebugInfo(
-            semantic_top1=retrieved_results[0][1] if retrieved_results else 0.0,
-            alpha=alpha,
-            lambda_param=lambda_param,
-            total_chunks=len(retrieved_results),
-            keyword_results=len(retrieved_results),  # Simplified for now
-            semantic_results=len(retrieved_results),  # Simplified for now
-            fused_results=len(retrieved_results),
-        )
+                status_code=500, detail=f"Query processing failed: {result.error}"
+            )
 
         processing_time = time.time() - start_time
         logger.info(
-            f"Query processed in {processing_time:.2f}s: '{request.query}' -> {len(citations)} citations"
+            f"Query processed in {processing_time:.2f}s: '{request.query}' -> {len(result.citations)} citations"
         )
 
         return QueryResponse(
-            answer=processed_answer,
-            citations=citations,
-            insufficient_evidence=insufficient_evidence,
-            intent=detected_intent,
-            debug=debug_info,
+            answer=result.answer,
+            citations=result.citations,
+            insufficient_evidence=result.insufficient_evidence,
+            intent=result.intent,
+            debug=result.debug_info,
             success=True,
         )
 
