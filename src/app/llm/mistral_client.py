@@ -5,10 +5,12 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 from typing import cast
+from typing import final
 
 import numpy as np
 from mistralai import Mistral
 from mistralai.models import MessagesTypedDict
+from mistralai.models.embeddingresponse import EmbeddingResponse
 from pydantic import BaseModel
 
 from app.core.config import config
@@ -33,6 +35,7 @@ class MistralAPIError(APIError):
     """Exception for Mistral API errors."""
 
 
+@final
 class MistralClient:
     """Client for interacting with Mistral AI API."""
 
@@ -46,7 +49,7 @@ class MistralClient:
             raise ConfigurationError("Mistral API key is required")
 
         # Initialize the official Mistral AI SDK client
-        self.official_client = Mistral(api_key=self.api_key)
+        self.client = Mistral(api_key=self.api_key)
 
     @monitor
     def get_embeddings(
@@ -71,12 +74,12 @@ class MistralClient:
         model = model or self.embed_model
 
         try:
-            embeddings_response = self.official_client.embeddings.create(
+            embeddings_response: EmbeddingResponse = self.client.embeddings.create(
                 model=model,
                 inputs=texts,
             )
 
-            embeddings = []
+            embeddings: list[np.ndarray] = []
             for item in embeddings_response.data:
                 embeddings.append(np.array(item.embedding, dtype=np.float32))
 
@@ -116,8 +119,8 @@ class MistralClient:
         Returns:
             Embedding vector as numpy array
         """
-        embeddings = self.get_embeddings([text], model)
-        return embeddings[0] if embeddings else np.array([])
+        embeddings: list[np.ndarray] = self.get_embeddings([text], model)
+        return embeddings[0] if embeddings else np.ndarray([])
 
     async def get_single_embedding_async(
         self, text: str, model: str | None = None
@@ -132,15 +135,15 @@ class MistralClient:
         Returns:
             Embedding vector as numpy array
         """
-        embeddings = await self.get_embeddings_async([text], model)
-        return embeddings[0] if embeddings else np.array([])
+        embeddings: list[np.ndarray] = await self.get_embeddings_async([text], model)
+        return embeddings[0] if embeddings else np.ndarray([])
 
     @monitor
     def chat_completion(
         self,
         messages: Sequence[dict[str, str]],
         model: str | None = None,
-        temperature: float = 0.1,
+        temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> str:
         """
@@ -161,7 +164,7 @@ class MistralClient:
         model = model or self.chat_model
 
         try:
-            chat_response = self.official_client.chat.complete(
+            chat_response = self.client.chat.complete(
                 model=model,
                 messages=_convert_messages(messages),
                 temperature=temperature,
@@ -184,7 +187,7 @@ class MistralClient:
         self,
         messages: Sequence[dict[str, str]],
         model: str | None = None,
-        temperature: float = 0.1,
+        temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> str:
         """
@@ -212,7 +215,7 @@ class MistralClient:
         messages: Sequence[dict[str, str]],
         response_format: type[BaseModel],
         model: str | None = None,
-        temperature: float = 0.1,
+        temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> BaseModel:
         """
@@ -234,7 +237,7 @@ class MistralClient:
         model = model or self.chat_model
 
         try:
-            chat_response = self.official_client.chat.parse(
+            chat_response = self.client.chat.parse(
                 model=model,
                 messages=_convert_messages(messages),
                 response_format=response_format,
@@ -246,11 +249,7 @@ class MistralClient:
             if not chat_response.choices:
                 raise MistralAPIError("No choices returned from API")
             choice = chat_response.choices[0]
-            if (
-                choice is None
-                or choice.message is None
-                or choice.message.parsed is None
-            ):
+            if choice.message is None or choice.message.parsed is None:
                 raise MistralAPIError("No parsed response received")
             return choice.message.parsed
 
@@ -264,7 +263,7 @@ class MistralClient:
         messages: Sequence[dict[str, str]],
         response_format: type[BaseModel],
         model: str | None = None,
-        temperature: float = 0.1,
+        temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> BaseModel:
         """
@@ -321,40 +320,6 @@ class EmbeddingManager:
             # Store embeddings in database
             for chunk_id, embedding in zip(chunk_ids, embeddings, strict=False):
                 self.db_manager.store_embedding(chunk_id, embedding)
-
-            logger.info(f"Successfully embedded and stored {len(chunk_data)} chunks")
-
-        except MistralAPIError as e:
-            logger.error(f"Failed to embed chunks: {e}")
-            raise
-
-    async def embed_and_store_chunks_async(self, chunk_data: list[dict[str, Any]]):
-        """
-        Async version of embed_and_store_chunks.
-
-        Args:
-            chunk_data: List of chunk dictionaries with 'chunk_id' and 'text'
-        """
-        if not chunk_data:
-            return
-
-        # Extract texts and chunk IDs
-        texts = [chunk["text"] for chunk in chunk_data]
-        chunk_ids = [chunk["chunk_id"] for chunk in chunk_data]
-
-        try:
-            # Get embeddings in batch
-            embeddings = await self.mistral_client.get_embeddings_async(texts)
-
-            # Store embeddings in database
-            if hasattr(self.db_manager, "store_embedding"):
-                # Sync database manager
-                for chunk_id, embedding in zip(chunk_ids, embeddings, strict=False):
-                    self.db_manager.store_embedding(chunk_id, embedding)
-            else:
-                # Async database manager
-                for chunk_id, embedding in zip(chunk_ids, embeddings, strict=False):
-                    await self.db_manager.store_embedding(chunk_id, embedding)
 
             logger.info(f"Successfully embedded and stored {len(chunk_data)} chunks")
 

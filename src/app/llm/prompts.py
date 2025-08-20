@@ -3,6 +3,39 @@
 # Avoid circular import - define enum locally for backward compatibility
 from enum import Enum
 from typing import Any
+from typing import final
+
+INSUFFICIENT_EVIDENCE_MESSAGE = "Insufficient evidence to answer this question"
+
+# Base system prompt with common rules
+BASE_SYSTEM_PROMPT = f"""You are a helpful assistant that answers questions based strictly on the provided context.
+
+IMPORTANT RULES:
+1. Answer ONLY based on the provided context
+2. Include citations in the format [<filename> p.X] for each claim (e.g. [Organic_Law.pdf p.45])
+3. If you cannot answer from the context, respond with {INSUFFICIENT_EVIDENCE_MESSAGE}
+4. Do not use your general knowledge - only use the provided context
+5. Be concise and accurate
+
+
+How NOT TO WRITE CITATIONS: 
+- ... [<filename> p.5] (actually using "<filename>" without replacing by the actual file name)
+- ... [<filename>Real name.pdf p.6] (using <filename> without replacing but adding after)
+- ... [Lord of the rings.pdf p.52, p.54, p.56] (putting multiple pages together from same source)
+
+How TO ACTUALLY WRITE CITATIONS: 
+- Input: From (filename="Lord of the rings.pdf" page="p.52"): the main character killed his father...
+         From (filename="Lord of the rings.pdf" page="p.54"): his father was known by the name of john...
+- Citation: the main character killed john [Lord of the rings.pdf p.52] [Lord of the rings.pdf p.54]
+"""
+
+# Standard user template
+STANDARD_USER_TEMPLATE = """Context:
+{context}
+
+Question: {query}
+
+Answer with citations in the format [<filename> p.X] (e.g. [Organic_Law.pdf p.45]):"""
 
 
 class QueryIntent(Enum):
@@ -23,25 +56,14 @@ class PromptTemplate:
         raise NotImplementedError
 
 
+@final
 class QAPromptTemplate(PromptTemplate):
     """Standard Q&A prompt template."""
 
     def __init__(self):
-        self.system_prompt = """You are a helpful assistant that answers questions based strictly on the provided context.
-
-IMPORTANT RULES:
-1. Answer ONLY based on the provided context
-2. Include citations in the format [filename p.X] for each claim
-3. If you cannot answer from the context, respond with "Insufficient evidence to answer this question"
-4. Do not use your general knowledge - only use the provided context
-5. Be concise and accurate"""
-
-        self.user_template = """Context:
-{context}
-
-Question: {query}
-
-Answer with citations in the format [filename p.X]:"""
+        # Use base prompt as-is for standard Q&A
+        self.system_prompt = BASE_SYSTEM_PROMPT
+        self.user_template = STANDARD_USER_TEMPLATE
 
     def format(self, query: str, context: str, **kwargs) -> list[dict[str, str]]:
         """Format as messages for chat completion."""
@@ -54,26 +76,20 @@ Answer with citations in the format [filename p.X]:"""
         ]
 
 
+@final
 class StructuredPromptTemplate(PromptTemplate):
     """Template for structured responses (lists, steps, etc.)."""
 
     def __init__(self):
-        self.system_prompt = """
-        You are a helpful assistant that provides structured answers based strictly on the provided context.
-
-        IMPORTANT RULES:
-        1. Answer ONLY based on the provided context
-        2. Use bullet points, numbered lists, or structured format as appropriate
-        3. Include citations in the format [filename p.X] for each point
-        4. If you cannot answer from the context, respond with "Insufficient evidence to answer this question"
-        5. Do not use your general knowledge - only use the provided context"""
-
-        self.user_template = """
-        Context: {context}
-
-        Question: {query}
-
-        Provide a structured answer with citations [filename p.X]:"""
+        # Base prompt + structured formatting guidelines
+        self.system_prompt = (
+            BASE_SYSTEM_PROMPT
+            + "\n\nStyle Guidelines: Use bullet points, numbered lists, or structured format as appropriate for each point."
+        )
+        self.user_template = STANDARD_USER_TEMPLATE.replace(
+            "Answer with citations in the format [<filename> p.X]",
+            "Provide a structured answer with citations [<filename> p.X]",
+        )
 
     def format(self, query: str, context: str, **kwargs) -> list[dict[str, str]]:
         """Format as messages for chat completion."""
@@ -86,26 +102,22 @@ class StructuredPromptTemplate(PromptTemplate):
         ]
 
 
+@final
 class ComparisonPromptTemplate(PromptTemplate):
     """Template for comparison-focused responses."""
 
     def __init__(self):
-        self.system_prompt = """
-        You are a helpful assistant that provides comparative analysis based strictly on the provided context.
-
-        IMPORTANT RULES:
-        1. Answer ONLY based on the provided context
-        2. Structure your comparison clearly with distinct points
-        3. Include citations in the format [filename p.X] for each comparison point
-        4. If you cannot make the comparison from the context, respond with "Insufficient evidence to answer this question"
-        5. Do not use your general knowledge - only use the provided context"""
-
-        self.user_template = """
-        Context: {context}
-
-        Comparison request: {query}
-
-        Provide a structured comparison with citations [filename p.X]:"""
+        # Base prompt + comparison-specific guidelines
+        self.system_prompt = (
+            BASE_SYSTEM_PROMPT
+            + "\n\nStyle Guidelines: Structure your comparison clearly with distinct points for each item being compared."
+        )
+        self.user_template = STANDARD_USER_TEMPLATE.replace(
+            "Question: {query}", "Comparison request: {query}"
+        ).replace(
+            "Answer with citations in the format [<filename> p.X]",
+            "Provide a structured comparison with citations [<filename> p.X]",
+        )
 
     def format(self, query: str, context: str, **kwargs) -> list[dict[str, str]]:
         """Format as messages for chat completion."""
@@ -118,26 +130,22 @@ class ComparisonPromptTemplate(PromptTemplate):
         ]
 
 
+@final
 class SummaryPromptTemplate(PromptTemplate):
     """Template for summary responses."""
 
     def __init__(self):
-        self.system_prompt = """
-        You are a helpful assistant that provides concise summaries based strictly on the provided context.
-
-        IMPORTANT RULES:
-        1. Summarize ONLY based on the provided context
-        2. Focus on the most important points
-        3. Include citations in the format [filename p.X] for key points
-        4. If you cannot summarize from the context, respond with "Insufficient evidence to answer this question"
-        5. Do not use your general knowledge - only use the provided context"""
-
-        self.user_template = """
-        Context: {context}
-
-        Summary request: {query}
-
-        Provide a concise summary with citations [filename p.X]:"""
+        # Base prompt + summary-specific guidelines
+        self.system_prompt = (
+            BASE_SYSTEM_PROMPT
+            + "\n\nStyle Guidelines: Focus on the most important points and provide a concise overview."
+        )
+        self.user_template = STANDARD_USER_TEMPLATE.replace(
+            "Question: {query}", "Summary request: {query}"
+        ).replace(
+            "Answer with citations in the format [<filename> p.X]",
+            "Provide a concise summary with citations [<filename> p.X]",
+        )
 
     def format(self, query: str, context: str, **kwargs) -> list[dict[str, str]]:
         """Format as messages for chat completion."""
@@ -150,6 +158,7 @@ class SummaryPromptTemplate(PromptTemplate):
         ]
 
 
+@final
 class PromptManager:
     """Manages prompt templates for different intents."""
 
@@ -210,13 +219,14 @@ class PromptManager:
             if len(text) > max_chunk_display_length:
                 text = text[:497] + "..."
 
-            context_parts.append(f"[{i}] From {filename} p.{page}: {text}")
+            context_parts.append(f"[{i}] From (filename='{filename}' page='p.{page}'): {text}")
 
         return "\n\n".join(context_parts)
 
 
 # Intent detection prompt for LLM-based intent detection and query rewriting
-INTENT_DETECTION_PROMPT = """You are an expert at analyzing user queries to determine their intent and optimize them for document retrieval and comprehension.
+INTENT_DETECTION_PROMPT = """You are an expert at analyzing user queries to determine their intent
+and optimize them for document retrieval and comprehension.
 
 Your task is to:
 1. Analyze the user's current query in the context of their conversation history
@@ -243,6 +253,54 @@ Consider the conversation history to understand:
 - References to earlier parts of the conversation
 
 Your output should be a structured response with the detected intent, optimized query, confidence score, and reasoning."""
+
+# Hallucination detection prompt template
+HALLUCINATION_DETECTION_PROMPT_TEMPLATE = """You are an expert fact-checker. Your task is to determine if a generated answer contains hallucinations or false information that cannot be supported by the provided context.
+
+Context:
+{context}
+
+Generated Answer:
+{answer}
+
+Instructions:
+1. Check every claim, fact, and statement in the answer
+2. Verify if each claim can be directly supported by the context
+3. Look for:
+   - Information that contradicts the context
+   - Claims not present in the context
+   - Misinterpretation of the context
+   - Addition of external knowledge not in context
+
+Respond with ONLY "HALLUCINATION" if you find any unsupported claims, or "GROUNDED" if all claims are properly supported by the context.
+
+After your verdict, provide a brief explanation in one sentence."""
+
+# PII detection prompt template
+PII_DETECTION_PROMPT_TEMPLATE = """You are a privacy expert. Analyze the following text for any personally identifiable information (PII).
+
+Text to analyze:
+{answer}
+
+Look for these types of PII:
+- Names (first names, last names, full names)
+- Email addresses
+- Phone numbers
+- Physical addresses
+- Social security numbers
+- Credit card numbers
+- Driver's license numbers
+- Passport numbers
+- Financial account numbers
+- Medical record numbers
+- IP addresses
+- Usernames that could identify individuals
+- Dates of birth
+- Any other information that could identify a specific person
+
+Respond with ONLY "PII_DETECTED" if you find any PII, or "NO_PII" if the text is clean.
+
+If PII is detected, list the types found (e.g., "name, email, phone") on the next line."""
 
 # Global prompt manager instance
 prompt_manager = PromptManager()

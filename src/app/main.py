@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api import collections
 from app.api import ingest
 from app.api import query
 from app.core.config import config
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     )
 
     # Include routers
+    app.include_router(collections.router, tags=["collections"])
     app.include_router(ingest.router, tags=["ingestion"])
     app.include_router(query.router, tags=["query"])
 
@@ -67,6 +69,7 @@ def create_app() -> FastAPI:
             "description": "A Retrieval-Augmented Generation system for PDF documents",
             "endpoints": {
                 "health": "/health",
+                "collections": "/collections",
                 "ingest": "/ingest",
                 "query": "/query",
                 "docs": "/docs",

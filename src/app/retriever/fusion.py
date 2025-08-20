@@ -261,12 +261,8 @@ class HybridRetriever:
         )
         semantic_dict = dict(semantic_results)
 
-        # Check semantic threshold - if top result is below threshold, return empty
-        if semantic_results and semantic_results[0][1] < threshold:
-            logger.info(
-                f"Top semantic score {semantic_results[0][1]:.3f} below threshold {threshold}"
-            )
-            return []
+        # Semantic threshold is already handled by semantic_searcher.search()
+        # No need for additional threshold check here
 
         # Fuse the results
         fused_results = self.fusion.fuse_results(semantic_dict, keyword_dict)
@@ -377,12 +373,8 @@ class AsyncHybridRetriever:
         keyword_dict = dict(keyword_results)
         semantic_dict = dict(semantic_results)
 
-        # Check semantic threshold - if top result is below threshold, return empty
-        if semantic_results and semantic_results[0][1] < threshold:
-            logger.info(
-                f"Top semantic score {semantic_results[0][1]:.3f} below threshold {threshold}"
-            )
-            return []
+        # Semantic threshold is already handled by semantic_searcher.search()
+        # No need for additional threshold check here
 
         # Fuse the results
         fused_results = self.fusion.fuse_results(semantic_dict, keyword_dict)
