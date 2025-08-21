@@ -235,7 +235,7 @@ class HybridRetriever:
         query_embedding: np.ndarray,
         top_k: int = 8,
         rerank_k: int = 20,
-        threshold: float = 0.18,
+        threshold: float = 0.4,
         use_mmr: bool = True,
     ) -> list[tuple[int, float, dict[str, Any]]]:
         """
@@ -340,7 +340,7 @@ class AsyncHybridRetriever:
         query_embedding: np.ndarray,
         top_k: int = 8,
         rerank_k: int = 20,
-        threshold: float = 0.18,
+        threshold: float = 0.4,
         use_mmr: bool = True,
     ) -> list[tuple[int, float, dict[str, Any]]]:
         """

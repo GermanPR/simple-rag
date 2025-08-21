@@ -16,7 +16,7 @@ def init_session_state():
         st.session_state.retrieval_params = {
             "top_k": 8,
             "rerank_k": 20,
-            "threshold": 0.18,
+            "threshold": 0.4,
             "alpha": 0.65,
             "use_mmr": True,
         }
@@ -29,7 +29,7 @@ def get_retrieval_params() -> dict[str, Any]:
     return st.session_state.get("retrieval_params", {
         "top_k": 8,
         "rerank_k": 20,
-        "threshold": 0.18,
+        "threshold": 0.4,
         "alpha": 0.65,
         "use_mmr": True,
     })

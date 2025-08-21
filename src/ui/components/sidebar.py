@@ -28,25 +28,6 @@ class Sidebar:
             backend_url, db_manager, embedding_manager, keyword_searcher
         )
 
-    def render_header(self):
-        """Render sidebar header with mode indicator."""
-        st.markdown("## 📚 RAG System")
-        
-        # Show connection status with debug info
-        if self.backend_url:
-            st.info(f"🌐 Backend: {self.backend_url}")
-            # Add debug expander for backend mode
-            with st.expander("🔍 Debug Info", expanded=False):
-                st.code(f"BACKEND_URL={os.getenv('BACKEND_URL', 'Not set')}")
-                st.code(f"use_backend={self.use_backend}")
-        else:
-            st.info("🏠 Local SQLite")
-            # Add debug expander for local mode  
-            with st.expander("🔍 Debug Info", expanded=False):
-                st.code(f"BACKEND_URL={os.getenv('BACKEND_URL', 'Not set')}")
-                st.code(f"use_backend={self.use_backend}")
-                from app.core.config import config
-                st.code(f"DB_PATH={config.DB_PATH}")
 
     def render_file_upload(self):
         """Render file upload section."""
@@ -94,7 +75,7 @@ class Sidebar:
                 "Evidence threshold",
                 min_value=0.0,
                 max_value=1.0,
-                value=current_params.get("threshold", 0.18),
+                value=current_params.get("threshold", 0.4),
                 step=0.01,
                 help="Minimum similarity threshold",
             )
@@ -197,8 +178,6 @@ class Sidebar:
     def render_complete_sidebar(self):
         """Render the complete sidebar interface."""
         with st.sidebar:
-            self.render_header()
-            st.markdown("---")
             
             self.render_file_upload()
             st.markdown("---")

@@ -131,7 +131,7 @@ def query(
     mmr_lambda: float = typer.Option(
         0.7, "--mmr-lambda", help="MMR diversity parameter (0-1)"
     ),
-    threshold: float = typer.Option(0.18, "--threshold", help="Evidence threshold"),
+    threshold: float = typer.Option(0.4, "--threshold", help="Evidence threshold"),
     no_llm: bool = typer.Option(
         False, "--no-llm", help="Skip LLM generation, show only retrieval"
     ),

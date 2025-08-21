@@ -185,7 +185,7 @@ class StreamlitRAG:
                 "Evidence threshold",
                 min_value=0.0,
                 max_value=1.0,
-                value=0.18,
+                value=0.4,
                 step=0.01,
                 help="Minimum semantic similarity threshold",
             )
@@ -470,7 +470,7 @@ class StreamlitRAG:
                 conversation_history=conversation_history,
                 top_k=params.get("top_k", 8),
                 rerank_k=params.get("rerank_k", 20),
-                threshold=params.get("threshold", 0.18),
+                threshold=params.get("threshold", 0.4),
                 alpha=params.get("alpha", 0.65),
                 lambda_param=params.get("lambda_param", 0.7),
                 use_mmr=params.get("use_mmr", True),
