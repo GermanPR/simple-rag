@@ -1,6 +1,7 @@
 """Clean sidebar component with upload and settings."""
 
 import asyncio
+import os
 import httpx
 import streamlit as st
 from typing import Any, List, Optional
@@ -31,11 +32,21 @@ class Sidebar:
         """Render sidebar header with mode indicator."""
         st.markdown("## 📚 RAG System")
         
-        # Show connection status
+        # Show connection status with debug info
         if self.backend_url:
             st.info(f"🌐 Backend: {self.backend_url}")
+            # Add debug expander for backend mode
+            with st.expander("🔍 Debug Info", expanded=False):
+                st.code(f"BACKEND_URL={os.getenv('BACKEND_URL', 'Not set')}")
+                st.code(f"use_backend={self.use_backend}")
         else:
             st.info("🏠 Local SQLite")
+            # Add debug expander for local mode  
+            with st.expander("🔍 Debug Info", expanded=False):
+                st.code(f"BACKEND_URL={os.getenv('BACKEND_URL', 'Not set')}")
+                st.code(f"use_backend={self.use_backend}")
+                from app.core.config import config
+                st.code(f"DB_PATH={config.DB_PATH}")
 
     def render_file_upload(self):
         """Render file upload section."""

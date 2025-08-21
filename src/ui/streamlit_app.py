@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+import httpx
 import streamlit as st
 
 # Add app directory to path
@@ -35,9 +36,30 @@ class StreamlitRAG:
     """Main RAG application with modular architecture."""
 
     def __init__(self):
-        # Configuration
-        self.backend_url = os.getenv("BACKEND_URL")
+        # Configuration with debug logging - check both env vars and Streamlit secrets
+        self.backend_url = os.getenv("BACKEND_URL") or st.secrets.get("BACKEND_URL", None)
         self.use_backend = bool(self.backend_url)
+        
+        # Debug logging for backend detection
+        env_backend_url = os.getenv("BACKEND_URL")
+        secrets_backend_url = st.secrets.get("BACKEND_URL", None)
+        logger.info(f"BACKEND_URL from environment: '{env_backend_url}'")
+        logger.info(f"BACKEND_URL from secrets: '{secrets_backend_url}'")
+        logger.info(f"Final BACKEND_URL: '{self.backend_url}'")
+        logger.info(f"Using backend mode: {self.use_backend}")
+        
+        # Validate backend URL if provided
+        if self.backend_url and self.backend_url.strip():
+            if not (self.backend_url.startswith('http://') or self.backend_url.startswith('https://')):
+                logger.warning(f"Backend URL doesn't start with http:// or https://: {self.backend_url}")
+                self.use_backend = False
+            else:
+                logger.info(f"Backend URL appears valid: {self.backend_url}")
+                # Test backend connectivity
+                self._test_backend_connectivity()
+        elif self.backend_url == "":
+            logger.info("Backend URL is empty string - using local mode")
+            self.use_backend = False
 
         # Initialize session state
         init_session_state()
@@ -53,6 +75,25 @@ class StreamlitRAG:
             self._init_local_components()
 
         self._init_ui_components()
+
+    def _test_backend_connectivity(self):
+        """Test backend connectivity and update use_backend flag accordingly."""
+        try:
+            logger.info(f"Testing connectivity to backend: {self.backend_url}")
+            response = httpx.get(f"{self.backend_url}/health", timeout=5)
+            if response.status_code == 200:
+                logger.info("Backend connectivity test successful")
+                backend_info = response.json()
+                logger.info(f"Backend status: {backend_info.get('status', 'unknown')}")
+                logger.info(f"Documents: {backend_info.get('total_documents', 0)}, Chunks: {backend_info.get('total_chunks', 0)}")
+            else:
+                logger.warning(f"Backend health check returned status {response.status_code}")
+                logger.info("Falling back to local mode due to backend connectivity issues")
+                self.use_backend = False
+        except Exception as e:
+            logger.error(f"Backend connectivity test failed: {e}")
+            logger.info("Falling back to local mode due to backend connectivity failure")
+            self.use_backend = False
 
     def _init_local_components(self):
         """Initialize local RAG components."""
@@ -123,22 +164,6 @@ class StreamlitRAG:
         retrieval_params = get_retrieval_params()
         self.chat_interface.render_main_interface(retrieval_params)
 
-        # Clear database button
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🗃️ Database Management")
-        if st.sidebar.button(
-            "🗑️ Clear All Data",
-            type="secondary",
-            help="Delete all documents and chunks from the database",
-        ) and st.sidebar.checkbox(
-            "I understand this will delete all data", key="confirm_delete"
-        ):
-            if self.use_backend:
-                self._clear_database_backend()
-            else:
-                self._clear_database()
-            st.sidebar.success("✅ Database cleared!")
-            st.rerun()
 
 
 def main():
