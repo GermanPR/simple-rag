@@ -18,6 +18,8 @@ The system has two main components:
 1. **FastAPI Backend** (`src/app/`): RESTful API with `/ingest`, `/query`, `/collections` and `/collections/stats` endpoints  
 2. **Streamlit UI** (`src/ui/`): Interactive web interface that can run standalone or connect to backend
 
+📊 **[View Architecture Flow Diagram](docs/architecture-flow.md)** - Visual overview of the ingest and query pipelines
+
 ### Core Pipeline
 - **Ingestion**: PDF → text extraction → chunking → TF-IDF indexing → embedding → SQLite storage
 - **Query**: Query → intent detection → hybrid search (TF-IDF + semantic) → MMR → generation → citations
