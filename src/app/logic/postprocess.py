@@ -1,5 +1,6 @@
 """Post-processing for citations, answer formatting, and validation."""
 
+import logging
 import re
 from typing import Any
 from typing import final

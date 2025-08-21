@@ -123,6 +123,23 @@ class StreamlitRAG:
         retrieval_params = get_retrieval_params()
         self.chat_interface.render_main_interface(retrieval_params)
 
+        # Clear database button
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 🗃️ Database Management")
+        if st.sidebar.button(
+            "🗑️ Clear All Data",
+            type="secondary",
+            help="Delete all documents and chunks from the database",
+        ) and st.sidebar.checkbox(
+            "I understand this will delete all data", key="confirm_delete"
+        ):
+            if self.use_backend:
+                self._clear_database_backend()
+            else:
+                self._clear_database()
+            st.sidebar.success("✅ Database cleared!")
+            st.rerun()
+
 
 def main():
     """Main entry point."""
