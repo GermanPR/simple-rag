@@ -1,12 +1,13 @@
 """Hybrid search fusion and MMR diversification."""
 
 import asyncio
-import logging
 from typing import Any
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from app.core.logging_config import get_logger
+
+logger = get_logger(__name__.split(".")[-1])
 
 
 class ScoreNormalizer:

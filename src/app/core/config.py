@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -36,7 +37,7 @@ class Config(BaseSettings):
         default=1800, ge=100, le=8192, description="Target chunk size in characters"
     )
     CHUNK_OVERLAP: int = Field(
-        default=200, ge=0, description="Overlap between chunks in characters"
+        default=100, ge=0, description="Overlap between chunks in characters"
     )
 
     # Retrieval settings
@@ -67,13 +68,14 @@ class Config(BaseSettings):
         description="Sentence-level hallucination threshold",
     )
 
-    @field_validator("CHUNK_OVERLAP")
-    @classmethod
-    def validate_chunk_overlap(cls, v):
+    @model_validator(mode="after")
+    def validate_chunk_sizes(self):
         """Ensure overlap is less than chunk size."""
-        # Note: Cross-field validation would require model_validator in pydantic v2
-        # For now, we'll validate this at runtime if needed
-        return v
+        if self.CHUNK_OVERLAP >= self.CHUNK_SIZE:
+            raise ValueError(
+                f"CHUNK_OVERLAP ({self.CHUNK_OVERLAP}) must be less than CHUNK_SIZE ({self.CHUNK_SIZE})"
+            )
+        return self
 
     @field_validator("DB_PATH")
     @classmethod

@@ -1,11 +1,13 @@
 """Semantic search using cosine similarity on embeddings."""
 
-import logging
 from typing import Any
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from app.core.exceptions import RetrievalError
+from app.core.logging_config import get_logger
+
+logger = get_logger(__name__.split(".")[-1])
 
 
 class SemanticSearcher:
@@ -39,6 +41,7 @@ class SemanticSearcher:
             logger.error(f"Error loading embeddings cache: {e}")
             self._cached_embeddings = np.array([])
             self._cached_chunk_ids = []
+            # Don't raise here - allow graceful degradation
 
     def _refresh_cache_if_needed(self):
         """Refresh the embeddings cache if it's not initialized."""
@@ -102,7 +105,7 @@ class SemanticSearcher:
 
         except Exception as e:
             logger.error(f"Error during semantic search: {e}")
-            return []
+            raise RetrievalError(f"Semantic search failed: {e}") from e
 
     def search_with_scores_dict(
         self, query_embedding: np.ndarray, top_k: int = 20, threshold: float = 0.0
@@ -150,7 +153,9 @@ class SemanticSearcher:
 
         except Exception as e:
             logger.error(f"Error calculating similarity for chunk {chunk_id}: {e}")
-            return 0.0
+            raise RetrievalError(
+                f"Failed to calculate similarity for chunk {chunk_id}: {e}"
+            ) from e
 
     def clear_cache(self):
         """Clear the embeddings cache to force reload."""
@@ -204,6 +209,7 @@ class AsyncSemanticSearcher:
             logger.error(f"Error loading embeddings cache: {e}")
             self._cached_embeddings = np.array([])
             self._cached_chunk_ids = []
+            # Don't raise here - allow graceful degradation
 
     async def _refresh_cache_if_needed(self):
         """Refresh the embeddings cache if it's not initialized."""
@@ -267,7 +273,7 @@ class AsyncSemanticSearcher:
 
         except Exception as e:
             logger.error(f"Error during semantic search: {e}")
-            return []
+            raise RetrievalError(f"Semantic search failed: {e}") from e
 
     async def search_with_scores_dict(
         self, query_embedding: np.ndarray, top_k: int = 20, threshold: float = 0.0
@@ -315,7 +321,9 @@ class AsyncSemanticSearcher:
 
         except Exception as e:
             logger.error(f"Error calculating similarity for chunk {chunk_id}: {e}")
-            return 0.0
+            raise RetrievalError(
+                f"Failed to calculate similarity for chunk {chunk_id}: {e}"
+            ) from e
 
     def clear_cache(self):
         """Clear the embeddings cache to force reload."""

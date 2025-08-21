@@ -1,7 +1,6 @@
 """FastAPI endpoint for document ingestion."""
 
 # Type imports are only needed for type hints, not used at runtime
-import logging
 from datetime import datetime
 
 import aiosqlite
@@ -12,6 +11,10 @@ from fastapi import HTTPException
 from fastapi import UploadFile
 
 from app.core.config import config
+from app.core.exceptions import APIError
+from app.core.exceptions import EmbeddingError
+from app.core.exceptions import ProcessingError
+from app.core.logging_config import get_logger
 from app.core.models import DocumentInfo
 from app.core.models import IngestResponse
 from app.ingest.chunker import chunk_text_async
@@ -20,7 +23,7 @@ from app.llm.mistral_client import get_async_embedding_manager
 from app.retriever.index import AsyncDatabaseManager
 from app.retriever.keyword import AsyncKeywordSearcher
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__.split(".")[-1])
 
 router = APIRouter()
 
@@ -84,8 +87,13 @@ async def ingest_documents(
             # Extract text from PDF
             try:
                 pages_text, total_pages = await extract_pdf_text_async(file_content)
-            except Exception as e:
+            except ProcessingError as e:
                 logger.error(f"Failed to extract text from {file.filename}: {e}")
+                continue
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error extracting text from {file.filename}: {e}"
+                )
                 continue
 
             if not pages_text:
@@ -125,9 +133,14 @@ async def ingest_documents(
             if chunk_data:
                 try:
                     await embedding_manager.embed_and_store_chunks(chunk_data)
-                except Exception as e:
+                except (EmbeddingError, APIError) as e:
                     logger.error(
                         f"Failed to generate embeddings for {file.filename}: {e}"
+                    )
+                    # Continue processing other files even if embeddings fail
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error generating embeddings for {file.filename}: {e}"
                     )
                     # Continue processing other files even if embeddings fail
 
@@ -143,6 +156,16 @@ async def ingest_documents(
 
             total_chunks += len(chunks)
             logger.info(f"Successfully ingested {file.filename}: {len(chunks)} chunks")
+
+        # Rebuild df values after processing all documents
+        if ingested_documents:
+            try:
+                logger.info("Rebuilding document frequency indices...")
+                await db_manager.async_rebuild_df()
+                logger.info("Document frequency indices rebuilt successfully")
+            except Exception as e:
+                logger.error(f"Failed to rebuild df indices: {e}")
+                # Continue anyway - this is an optimization, not critical
 
         if not ingested_documents:
             raise HTTPException(

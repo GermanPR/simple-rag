@@ -1,6 +1,5 @@
 """FastAPI endpoint for query processing."""
 
-import logging
 import time
 
 import aiosqlite
@@ -9,6 +8,10 @@ from fastapi import Depends
 from fastapi import HTTPException
 
 from app.core.config import config
+from app.core.exceptions import APIError
+from app.core.exceptions import GenerationError
+from app.core.exceptions import RetrievalError
+from app.core.logging_config import get_logger
 from app.core.models import QueryRequest
 from app.core.models import QueryResponse
 from app.llm.mistral_client import get_mistral_client
@@ -16,7 +19,7 @@ from app.logic.intent import ConversationMessage
 from app.retriever.index import AsyncDatabaseManager
 from app.services.query_service import AsyncRAGQueryService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__.split(".")[-1])
 
 router = APIRouter()
 
@@ -103,6 +106,11 @@ async def query_documents(
 
     except HTTPException:
         raise
+    except (RetrievalError, GenerationError, APIError) as e:
+        logger.error(f"RAG system error during query processing: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Query processing failed: {str(e)}"
+        ) from e
     except Exception as e:
         logger.error(f"Unexpected error during query processing: {e}")
         raise HTTPException(
