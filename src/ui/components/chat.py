@@ -57,10 +57,6 @@ class ChatInterface:
             # Create placeholder for response
             response_placeholder = st.empty()
             
-            # Show processing indicator
-            with response_placeholder.container():
-                st.markdown("🤔 Thinking...")
-            
             # Process query
             result = self.query_handler.handle_query(user_input, params)
             

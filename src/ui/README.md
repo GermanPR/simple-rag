@@ -32,7 +32,7 @@ ui/
 ### Smart Chat Management
 - **Message Pairs**: Only commits complete user-assistant exchanges to history
 - **Error Handling**: Graceful error display without breaking chat flow
-- **Progressive Loading**: Shows "🤔 Thinking..." with step updates
+- **Progressive Loading**: Shows "Processing query"
 
 ### Clean Interface
 - **Hidden Advanced Settings**: Retrieval parameters moved to collapsible section

@@ -85,8 +85,31 @@ class SystemStatus:
             health_data = asyncio.run(self.check_backend_health())
             if health_data:
                 st.success(f"🌐 Backend: Connected")
+                # Show additional backend info
+                if "status" in health_data:
+                    status = health_data["status"]
+                    if status == "healthy":
+                        st.success("✅ Backend is healthy")
+                    elif status == "degraded":
+                        st.warning("⚠️ Backend is degraded")
+                    else:
+                        st.info(f"ℹ️ Backend status: {status}")
             else:
                 st.error(f"🌐 Backend: Offline")
+                st.error("❌ Cannot connect to backend - check if it's running")
+                with st.expander("Backend Connection Help"):
+                    st.markdown("""
+                    **Troubleshooting Backend Connection:**
+                    1. Make sure the FastAPI backend is running:
+                       ```bash
+                       uv run uvicorn src.app.main:app --reload --port 8000
+                       ```
+                    2. Check that BACKEND_URL is set correctly:
+                       ```bash
+                       export BACKEND_URL=http://localhost:8000
+                       ```
+                    3. Verify the backend is accessible at the URL
+                    """)
         elif self.db_manager:
             st.info("🏠 Local: SQLite")
         else:
@@ -116,10 +139,14 @@ def show_database_stats(db_manager=None, backend_url: Optional[str] = None):
                 docs = stats.get("total_documents", 0)
                 chunks = stats.get("total_chunks", 0)
                 st.write(f"📊 {docs} documents, {chunks} chunks")
+                if docs == 0:
+                    st.info("💡 Upload some PDFs to get started!")
             else:
                 st.write("📊 Backend unavailable")
-        except Exception:
+                st.error("❌ Cannot connect to backend")
+        except Exception as e:
             st.write("📊 Backend error")
+            st.error(f"❌ Backend error: {str(e)}")
     
     elif db_manager:
         # Local mode
@@ -130,5 +157,8 @@ def show_database_stats(db_manager=None, backend_url: Optional[str] = None):
                 cursor = conn.execute("SELECT COUNT(*) FROM chunks")
                 chunks = cursor.fetchone()[0]
             st.write(f"📊 {docs} documents, {chunks} chunks")
-        except Exception:
+            if docs == 0:
+                st.info("💡 Upload some PDFs to get started!")
+        except Exception as e:
             st.write("📊 Database error")
+            st.error(f"❌ Database error: {str(e)}")
