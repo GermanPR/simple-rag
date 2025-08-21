@@ -59,7 +59,7 @@ cp .env.example .streamlit/secrets.toml
 
 **Option A: Streamlit UI (Local Mode)**
 ```bash
-uv run poe app
+uv run poe streamlit-app # poe task defined in pyproject.toml
 ```
 
 **Option B: FastAPI Backend + UI**
@@ -69,45 +69,6 @@ uv run uvicorn src.app.main:app --reload --port 8000
 
 # Terminal 2: Start UI with backend
 BACKEND_URL=http://localhost:8000 uv run streamlit run src/ui/streamlit_app.py
-```
-
-## Development
-
-### Testing
-```bash
-# Run all tests
-uv run pytest
-
-# Run specific test files
-uv run pytest src/tests/test_chunker.py -v
-uv run pytest --cov=app src/tests/  # With coverage
-
-# Run tests matching pattern
-uv run pytest -k "test_tfidf"
-```
-
-### Code Quality
-```bash
-# Format and lint code
-uv run ruff format .
-uv run ruff check .
-uv run ruff check --fix .  # Auto-fix issues
-
-# Type checking
-uv run basedpyright
-uv run basedpyright --level ERROR  # Show only errors
-```
-
-### CLI Commands
-```bash
-# View database statistics
-uv run rag stats
-
-# Debug queries with detailed retrieval info
-uv run rag query "your question here" --k 10 --alpha 0.7
-
-# Test LLM-based intent detection
-uv run rag test-intent "What are the benefits of AI?"
 ```
 
 ## API Usage
@@ -134,7 +95,7 @@ curl -X POST "http://localhost:8000/query" \
   -d '{
     "query": "What are the main benefits of machine learning?",
     "top_k": 5,
-    "threshold": 0.18,
+    "threshold": 0.4,
     "use_mmr": true
   }'
 ```
@@ -148,6 +109,30 @@ curl http://localhost:8000/collections/stats
 ```bash
 curl -X DELETE http://localhost:8000/collections
 ```
+
+## Dependencies
+
+### Runtime Dependencies
+- **fastapi**: Web framework for the REST API backend
+- **uvicorn**: ASGI server for running FastAPI in production
+- **streamlit**: Interactive web UI framework for the frontend
+- **pydantic**: Data validation and settings management with type annotations
+- **pydantic-settings**: Environment variable configuration management
+- **mistralai**: Official Mistral AI client for embeddings and chat completions
+- **numpy**: Numerical operations for embedding vectors and similarity calculations
+- **aiosqlite**: Async SQLite adapter for database operations
+- **httpx**: HTTP client for Streamlit to communicate with FastAPI backend
+- **pymupdf**: PDF text extraction with page-level metadata (replaces pdfminer)
+- **python-multipart**: FastAPI dependency for handling file uploads
+- **typer**: Command-line interface framework with rich terminal output
+- **rich**: Enhanced terminal formatting and progress displays
+
+### Development Dependencies  
+- **pytest**: Testing framework with async support and benchmarking
+- **ruff**: Fast Python linter and formatter (replaces black, isort, flake8)
+- **basedpyright**: Static type checker for Python
+- **pre-commit**: Git hooks for automated code quality checks
+- **poethepoet**: Task runner for development commands
 
 ## Configuration
 
@@ -199,11 +184,51 @@ simple-rag/
 - **MMR Diversification**: Maximal Marginal Relevance to reduce redundancy in results
 
 ### Safety and Guardrails System
-- **Evidence threshold refusal** (default: 0.18 similarity)
+- **Evidence threshold refusal** (default: 0.4 similarity)
 - **Citation requirements**: All answers include `[filename p.X]` citations
 - **Intent detection**: LLM-based query analysis with fallback to pattern matching
 - **Hallucination detection**: LLM-based verification that answers are grounded in context
 - **PII detection**: LLM-based identification of personally identifiable information
+
+
+## Development
+
+### Testing
+```bash
+# Run all tests
+uv run pytest
+
+# Run specific test files
+uv run pytest src/tests/test_chunker.py -v
+uv run pytest --cov=app src/tests/  # With coverage
+
+# Run tests matching pattern
+uv run pytest -k "test_tfidf"
+```
+
+### Code Quality
+```bash
+# Format and lint code
+uv run ruff format .
+uv run ruff check .
+uv run ruff check --fix .  # Auto-fix issues
+
+# Type checking
+uv run basedpyright
+uv run basedpyright --level ERROR  # Show only errors
+```
+
+### CLI Commands
+```bash
+# View database statistics
+uv run rag stats
+
+# Debug queries with detailed retrieval info
+uv run rag query "your question here" --k 10 --alpha 0.7
+
+# Test LLM-based intent detection
+uv run rag test-intent "What are the benefits of AI?"
+```
 
 ### Database Schema (SQLite)
 - `documents`: Document metadata

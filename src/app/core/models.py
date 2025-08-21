@@ -49,7 +49,7 @@ class QueryRequest(BaseModel):
         description="Number of candidates to consider for reranking",
     )
     threshold: float = Field(
-        default=0.18,
+        default=0.4,
         ge=0.0,
         le=1.0,
         description="Minimum semantic similarity threshold",

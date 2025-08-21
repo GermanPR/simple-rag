@@ -164,7 +164,7 @@ The system follows a **service-oriented architecture** with clear separation:
 
 ### Safety and Guardrails System
 The system implements comprehensive safety checks in the postprocessing pipeline:
-- **Evidence threshold refusal** (default: 0.18 similarity)
+- **Evidence threshold refusal** (default: 0.4 similarity)
 - **Citation requirements**: All answers include `[filename p.X]` citations
 - **Intent detection**: LLM-based query analysis with fallback to pattern matching
 - **Hallucination detection**: LLM-based verification that answers are grounded in context

@@ -19,7 +19,7 @@ class TestConfig:
         assert config.CHUNK_SIZE == 1800
         assert config.CHUNK_OVERLAP == 200
         assert config.DEFAULT_TOP_K == 8
-        assert config.DEFAULT_THRESHOLD == 0.18
+        assert config.DEFAULT_THRESHOLD == 0.4
         assert config.MISTRAL_EMBED_MODEL == "mistral-embed"
 
     def test_environment_variables(self):

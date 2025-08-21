@@ -51,7 +51,7 @@ class Config(BaseSettings):
         description="Default number of candidates for reranking",
     )
     DEFAULT_THRESHOLD: float = Field(
-        default=0.18, ge=0.0, le=1.0, description="Default similarity threshold"
+        default=0.4, ge=0.0, le=1.0, description="Default similarity threshold"
     )
     DEFAULT_ALPHA: float = Field(
         default=0.65, ge=0.0, le=1.0, description="Semantic vs keyword blend ratio"
